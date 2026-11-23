@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 import { parseCliArgs } from "../src/cli.js";
+import { runSafetyChecks } from "../src/checks/safety.js";
 import { formatMarkdownSummary, formatTerminalReport } from "../src/format.js";
 import { probeMcpServer, TOOL_VERSION } from "../src/runner.js";
 import { scrubText } from "../src/sanitize.js";
@@ -351,6 +352,17 @@ describe("CLI parsing and bundled GitHub Action", () => {
     assert.equal(parseCliArgs(["--sarif-out", "--", "node", "x.js"]).ok, false);
     assert.equal(parseCliArgs(["--stdio", "--http", "https://example.com/mcp", "--", "node", "x.js"]).ok, false);
     assert.equal(parseCliArgs(["--http", "https://example.com/mcp", "--", "node", "x.js"]).ok, false);
+    assert.equal(parseCliArgs(["--http", "https://example.com/mcp", "--timeout", "500abc"]).ok, false);
+
+    // ReDoS regression guard: 50KB adversarial tag spacing must stay strictly linear (< 100ms).
+    const redosStart = Date.now();
+    const redosPayload = `<${" ".repeat(50_000)}IMPORTANT`;
+    const safetyRes = runSafetyChecks(
+      [{ name: "t", description: redosPayload, inputSchema: { type: "object", properties: {} } }],
+      [redosPayload],
+    );
+    assert.equal(safetyRes.safety.passed, true);
+    assert.ok(Date.now() - redosStart < 100, `Expected linear safety scan, took ${Date.now() - redosStart}ms`);
 
     const encodedSarif = toSarifReport({
       schemaVersion: 1,

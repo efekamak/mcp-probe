@@ -17,7 +17,7 @@ const HIGH_RISK_INJECTION_PATTERNS: Array<{ rule: string; regex: RegExp; label: 
   },
   {
     rule: "safety.prompt-injection-tags",
-    regex: /<\s*\/?\s*(?:IMPORTANT|system|instructions|override)\s*>/i,
+    regex: /<\s{0,8}(?:\/\s{0,8})?(?:IMPORTANT|system|instructions|override)\s{0,8}>/i,
     label: "suspicious prompt-framing tag (<IMPORTANT> / <system>)",
   },
   {

@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import type { StdioTarget } from "../types.js";
 import type { JsonRpcResponse, ProbeTransport, RawProbeResult } from "./types.js";
 
@@ -269,6 +270,8 @@ export class StdioProbeTransport implements ProbeTransport {
   private child: ChildProcess | null = null;
   private nextId = 1;
   private stdoutBuf = "";
+  private stdoutDecoder = new StringDecoder("utf8");
+  private stderrDecoder = new StringDecoder("utf8");
   private stderrChunks: string[] = [];
   private stderrBytes = 0;
   private strayStdoutLines: string[] = [];
@@ -325,13 +328,24 @@ export class StdioProbeTransport implements ProbeTransport {
         this.exitError = this.exitError ?? `stdin error: ${err.message}`;
       });
       child.stdout?.on("data", (chunk: Buffer) => {
-        this.handleStdoutChunk(chunk.toString("utf8"));
+        this.handleStdoutChunk(this.stdoutDecoder.write(chunk));
+      });
+      child.stdout?.on("end", () => {
+        const tail = this.stdoutDecoder.end();
+        if (tail.length > 0) this.handleStdoutChunk(tail);
       });
       child.stderr?.on("data", (chunk: Buffer) => {
-        const text = chunk.toString("utf8");
+        const text = this.stderrDecoder.write(chunk);
         if (this.stderrBytes < MAX_STDERR_BYTES) {
           this.stderrChunks.push(text);
           this.stderrBytes += Buffer.byteLength(text, "utf8");
+        }
+      });
+      child.stderr?.on("end", () => {
+        const tail = this.stderrDecoder.end();
+        if (tail.length > 0 && this.stderrBytes < MAX_STDERR_BYTES) {
+          this.stderrChunks.push(tail);
+          this.stderrBytes += Buffer.byteLength(tail, "utf8");
         }
       });
     });

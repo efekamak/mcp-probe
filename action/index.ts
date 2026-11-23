@@ -109,7 +109,7 @@ export async function run(): Promise<void> {
       throw new Error(`Invalid fail-on value "${failOn}" (expected fail, warn, or none).`);
     }
 
-    const timeoutMs = Number.parseInt(timeoutRaw, 10);
+    const timeoutMs = /^\d+$/.test(timeoutRaw) ? Number.parseInt(timeoutRaw, 10) : Number.NaN;
     if (!Number.isFinite(timeoutMs) || timeoutMs < 500 || timeoutMs > 120_000) {
       throw new Error("timeout-ms must be an integer between 500 and 120000.");
     }

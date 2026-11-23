@@ -134,7 +134,8 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
       continue;
     }
     if (arg === "--timeout") {
-      const parsed = Number.parseInt(argv[++i] ?? "", 10);
+      const rawTimeout = argv[++i] ?? "";
+      const parsed = /^\d+$/.test(rawTimeout) ? Number.parseInt(rawTimeout, 10) : Number.NaN;
       if (!Number.isFinite(parsed) || parsed < 500 || parsed > 120_000) {
         return { ok: false, exitCode: 2, message: "--timeout must be between 500 and 120000 ms." };
       }
