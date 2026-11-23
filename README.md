@@ -10,10 +10,10 @@ Connects directly to any MCP server over **stdio** or **Streamable HTTP** (`appl
 
 1. **JSON-RPC 2.0 & MCP protocol conformance**
    - `initialize` handshake (`protocolVersion`, `serverInfo`, `capabilities`) and `notifications/initialized`
-   - `tools/list` validity and unique tool names
+   - `tools/list`, `prompts/list`, and `resources/list` validity (unique names, valid URIs, path-traversal checks)
    - Unknown method returns JSON-RPC `-32601`
    - Unknown `tools/call` handled cleanly with JSON-RPC error or `isError: true`
-   - Invalid JSON-RPC request (`{"jsonrpc":"2.0","id":999001}`) returns `-32600` (not `-32700`, not HTML)
+   - Invalid JSON-RPC request (`{"jsonrpc":"2.0","id":999001}`) and empty HTTP batch (`[]`) return `-32600` (not `-32700`, not HTML)
    - Malformed JSON returns `-32700` without leaking HTML stack traces
    - Server stays alive and responds to `ping` after negative probes
    - Stdio stdout framing cleanliness (flags stray non-JSON log lines that corrupt stdio clients)
@@ -41,7 +41,8 @@ npx mcp-probe --stdio -- npx -y @playwright/mcp
 # Audit a Streamable HTTP MCP endpoint
 npx mcp-probe --http http://127.0.0.1:3000/mcp
 
-# Emit JSON or Markdown/HTML summary, or fail on warnings
+# Emit JSON, SARIF 2.1.0 (for GitHub Code Scanning), or Markdown summary
+npx mcp-probe --stdio --sarif --sarif-out mcp-probe.sarif -- node ./dist/server.js
 npx mcp-probe --stdio --json --strict -- node ./dist/server.js
 ```
 
@@ -68,7 +69,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: efekamak/mcp-probe@v0.1.0
+      - uses: efekamak/mcp-probe@v0.2.0
         with:
           command: node
           args: '["dist/server.js"]'
@@ -96,6 +97,7 @@ jobs:
 | `estimated-tokens` | Estimated context tokens consumed by `tools/list`. |
 | `failed-checks` | Number of failed checks. |
 | `result-path` | Path under `RUNNER_TEMP` to the JSON audit report. |
+| `sarif-path` | Path under `RUNNER_TEMP` to the SARIF 2.1.0 report for GitHub Code Scanning. |
 
 ## Security boundaries
 

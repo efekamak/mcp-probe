@@ -1,5 +1,5 @@
 import { detectSecretOrPathLeak, scrubText } from "../sanitize.js";
-import type { CheckResult, McpTool, SafetyFinding, SafetySummary } from "../types.js";
+import type { CheckResult, McpPrompt, McpResource, McpTool, SafetyFinding, SafetySummary } from "../types.js";
 
 // Zero-width spaces, directional overrides, and invisible BOM characters often used in tool poisoning.
 const INVISIBLE_UNICODE_REGEX = /[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/;
@@ -60,9 +60,48 @@ function collectSchemaTextFields(node: unknown, depth: number, out: string[]): v
   }
 }
 
+function scanTextSurface(entityLabel: string, combined: string, findings: SafetyFinding[]): void {
+  if (INVISIBLE_UNICODE_REGEX.test(combined)) {
+    findings.push({
+      tool: entityLabel,
+      rule: "safety.invisible-unicode",
+      severity: "fail",
+      message: "Metadata contains invisible zero-width or BiDi Unicode characters.",
+    });
+  }
+
+  for (const { rule, regex, label } of HIGH_RISK_INJECTION_PATTERNS) {
+    const m = combined.match(regex);
+    if (m) {
+      findings.push({
+        tool: entityLabel,
+        rule,
+        severity: "fail",
+        message: `Metadata contains ${label}.`,
+        excerpt: scrubText(m[0], 120),
+      });
+    }
+  }
+
+  for (const { rule, regex, label } of WARN_SHADOWING_PATTERNS) {
+    const m = combined.match(regex);
+    if (m) {
+      findings.push({
+        tool: entityLabel,
+        rule,
+        severity: "warn",
+        message: `Metadata contains ${label}.`,
+        excerpt: scrubText(m[0], 120),
+      });
+    }
+  }
+}
+
 export function runSafetyChecks(
   tools: McpTool[],
   rawErrorBodies: string[],
+  prompts: McpPrompt[] = [],
+  resources: McpResource[] = [],
 ): { safety: SafetySummary; checks: CheckResult[] } {
   const findings: SafetyFinding[] = [];
 
@@ -71,43 +110,25 @@ export function runSafetyChecks(
     if (tool.title) texts.push(tool.title);
     if (tool.description) texts.push(tool.description);
     if (tool.inputSchema) collectSchemaTextFields(tool.inputSchema, 0, texts);
+    scanTextSurface(tool.name, texts.join("\n"), findings);
+  }
 
-    const combined = texts.join("\n");
-
-    if (INVISIBLE_UNICODE_REGEX.test(combined)) {
-      findings.push({
-        tool: tool.name,
-        rule: "safety.invisible-unicode",
-        severity: "fail",
-        message: "Tool metadata contains invisible zero-width or BiDi Unicode characters.",
-      });
+  for (const prompt of prompts) {
+    const texts: string[] = [prompt.name];
+    if (prompt.title) texts.push(prompt.title);
+    if (prompt.description) texts.push(prompt.description);
+    for (const arg of prompt.arguments ?? []) {
+      texts.push(arg.name);
+      if (arg.description) texts.push(arg.description);
     }
+    scanTextSurface(`prompt:${prompt.name}`, texts.join("\n"), findings);
+  }
 
-    for (const { rule, regex, label } of HIGH_RISK_INJECTION_PATTERNS) {
-      const m = combined.match(regex);
-      if (m) {
-        findings.push({
-          tool: tool.name,
-          rule,
-          severity: "fail",
-          message: `Tool metadata contains ${label}.`,
-          excerpt: scrubText(m[0], 120),
-        });
-      }
-    }
-
-    for (const { rule, regex, label } of WARN_SHADOWING_PATTERNS) {
-      const m = combined.match(regex);
-      if (m) {
-        findings.push({
-          tool: tool.name,
-          rule,
-          severity: "warn",
-          message: `Tool metadata contains ${label}.`,
-          excerpt: scrubText(m[0], 120),
-        });
-      }
-    }
+  for (const resource of resources) {
+    const texts: string[] = [resource.name, resource.uri];
+    if (resource.title) texts.push(resource.title);
+    if (resource.description) texts.push(resource.description);
+    scanTextSurface(`resource:${resource.name}`, texts.join("\n"), findings);
   }
 
   for (const raw of rawErrorBodies) {
@@ -125,24 +146,26 @@ export function runSafetyChecks(
 
   const errors = findings.filter((f) => f.severity === "fail").length;
   const warnings = findings.filter((f) => f.severity === "warn").length;
+  const surfaceFindings = findings.filter((f) => f.tool !== null);
+  const errorFindings = findings.filter((f) => f.tool === null);
+  const totalEntities = tools.length + prompts.length + resources.length;
 
   const checks: CheckResult[] = [
     {
       id: "safety.tool-poisoning",
       category: "safety",
-      title: "Tool-poisoning & prompt-injection surface scan",
+      title: "Tool & prompt poisoning / injection surface scan",
       status:
-        findings.filter((f) => f.tool !== null && f.severity === "fail").length > 0
+        surfaceFindings.some((f) => f.severity === "fail")
           ? "fail"
-          : findings.filter((f) => f.tool !== null && f.severity === "warn").length > 0
+          : surfaceFindings.some((f) => f.severity === "warn")
             ? "warn"
             : "pass",
       summary:
-        findings.filter((f) => f.tool !== null).length === 0
-          ? `Scanned ${tools.length} tool(s); no invisible Unicode or injection patterns found.`
-          : `Flagged ${findings.filter((f) => f.tool !== null).length} suspicious tool metadata finding(s).`,
-      details: findings
-        .filter((f) => f.tool !== null)
+        surfaceFindings.length === 0
+          ? `Scanned ${totalEntities} metadata item(s) (${tools.length} tool(s), ${prompts.length} prompt(s), ${resources.length} resource(s)); no injection patterns found.`
+          : `Flagged ${surfaceFindings.length} suspicious metadata finding(s).`,
+      details: surfaceFindings
         .slice(0, 6)
         .map((f) => `[${f.severity}] ${f.tool}: ${f.message}${f.excerpt ? ` ("${f.excerpt}")` : ""}`),
     },
@@ -151,17 +174,16 @@ export function runSafetyChecks(
       category: "safety",
       title: "Error response secret & host-path hygiene",
       status:
-        findings.filter((f) => f.tool === null && f.severity === "fail").length > 0
+        errorFindings.some((f) => f.severity === "fail")
           ? "fail"
-          : findings.filter((f) => f.tool === null && f.severity === "warn").length > 0
+          : errorFindings.some((f) => f.severity === "warn")
             ? "warn"
             : "pass",
       summary:
-        findings.filter((f) => f.tool === null).length === 0
+        errorFindings.length === 0
           ? "No secret tokens or host user paths observed in error responses."
-          : `Observed ${findings.filter((f) => f.tool === null).length} sensitive leak(s) in server error responses.`,
-      details: findings
-        .filter((f) => f.tool === null)
+          : `Observed ${errorFindings.length} sensitive leak(s) in server error responses.`,
+      details: errorFindings
         .slice(0, 4)
         .map((f) => `[${f.severity}] ${f.message}`),
     },

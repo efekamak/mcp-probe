@@ -8,6 +8,7 @@ import { describe, it } from "node:test";
 import { parseCliArgs } from "../src/cli.js";
 import { formatMarkdownSummary, formatTerminalReport } from "../src/format.js";
 import { probeMcpServer } from "../src/runner.js";
+import { toSarifReport } from "../src/sarif.js";
 
 const REPO_ROOT = process.cwd();
 const GOOD_STDIO = path.join(REPO_ROOT, "tests", "fixtures", "good-stdio-server.mjs");
@@ -46,13 +47,13 @@ async function startLocalHttpServer(
         return;
       }
 
-      if (msg.jsonrpc !== "2.0" || typeof msg.method !== "string") {
+      if (Array.isArray(msg) || !msg || typeof msg !== "object" || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") {
         const code = mode === "broken-html" ? -32700 : -32600;
         res.writeHead(400, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
             jsonrpc: "2.0",
-            id: msg.id ?? null,
+            id: !Array.isArray(msg) && msg && typeof msg === "object" ? (msg.id ?? null) : null,
             error: { code, message: "Invalid Request" },
           }),
         );
@@ -158,6 +159,11 @@ describe("mcp-probe stdio audit", () => {
     assert.equal(report.grade, "A");
     assert.equal(report.server.name, "good-fixture-mcp");
     assert.equal(report.context.toolCount, 1);
+    assert.equal(report.context.promptCount, 1);
+    assert.equal(report.context.resourceCount, 1);
+    const byId = new Map(report.checks.map((c) => [c.id, c]));
+    assert.equal(byId.get("protocol.prompts-list")?.status, "pass");
+    assert.equal(byId.get("protocol.resources-list")?.status, "pass");
     assert.equal(report.providers.openai.compatible, true);
     assert.equal(report.providers.anthropic.compatible, true);
     assert.equal(report.providers.gemini.compatible, true);
@@ -183,10 +189,16 @@ describe("mcp-probe stdio audit", () => {
     const byId = new Map(report.checks.map((c) => [c.id, c]));
     assert.equal(byId.get("protocol.stdio-stdout-clean")?.status, "fail");
     assert.equal(byId.get("protocol.invalid-jsonrpc")?.status, "fail");
+    assert.equal(byId.get("protocol.resources-list")?.status, "fail");
     assert.equal(byId.get("schema.compat-openai")?.status, "fail");
     assert.equal(byId.get("schema.compat-gemini")?.status, "fail");
     assert.equal(byId.get("safety.tool-poisoning")?.status, "fail");
     assert.equal(byId.get("safety.error-hygiene")?.status, "fail");
+    assert.ok(report.safety.findings.some((f) => f.tool === "prompt:sneaky_prompt"));
+
+    const sarif = toSarifReport(report);
+    assert.equal(sarif.version, "2.1.0");
+    assert.ok(sarif.runs[0].results.some((r) => r.ruleId === "safety.tool-poisoning" && r.level === "error"));
 
     // Ensure leaked secret is scrubbed in the serialized report
     const serialized = JSON.stringify(report);
@@ -281,6 +293,7 @@ describe("CLI parsing and bundled GitHub Action", () => {
       const outputs = await fs.readFile(outFile, "utf8");
       assert.match(outputs, /grade<<[\s\S]*?\r?\nA\r?\n/);
       assert.match(outputs, /tool-count<<[\s\S]*?\r?\n1\r?\n/);
+      assert.match(outputs, /sarif-path<<[\s\S]*?\.sarif\r?\n/);
       const summary = await fs.readFile(sumFile, "utf8");
       assert.match(summary, /<h3>mcp-probe:/);
     } finally {

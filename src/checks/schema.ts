@@ -223,16 +223,26 @@ function checkToolForProvider(tool: McpTool, provider: ProviderId): ProviderIssu
           severity: "fail",
           message: `JSON Schema union type array ${JSON.stringify(obj.type)} is rejected by Gemini OpenAPI 3.0 schema validation.`,
           path: `${schemaPath}.type`,
+          fix: "Use a single primitive type instead of a JSON Schema type array.",
         });
       }
       for (const kw of GEMINI_FAIL_KEYWORDS) {
         if (obj[kw] !== undefined && !(schemaPath === "$" && (kw === "oneOf" || kw === "allOf" || kw === "not"))) {
+          const fix =
+            kw === "exclusiveMinimum"
+              ? "Replace exclusiveMinimum with inclusive minimum (for integers, use minimum: N + 1)."
+              : kw === "exclusiveMaximum"
+                ? "Replace exclusiveMaximum with inclusive maximum (for integers, use maximum: N - 1)."
+                : kw === "$ref" || kw === "$defs" || kw === "definitions"
+                  ? "Inline referenced sub-schemas instead of using $ref/$defs."
+                  : `Remove or rewrite "${kw}" into standard OpenAPI 3.0 properties.`;
           addUnique({
             tool: tool.name,
             rule: `gemini.unsupported-${kw}`,
             severity: "fail",
             message: `Keyword "${kw}" is rejected by Google Gemini tool schema validation.`,
             path: `${schemaPath}.${kw}`,
+            fix,
           });
         }
       }

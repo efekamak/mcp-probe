@@ -41,6 +41,7 @@ function renderCard(entry) {
   titleWrap.append(el("span", "srv-pkg", `${entry.package}${ver}`));
 
   const right = el("div", "badges-right");
+  right.append(el("span", "pill neutral", r.target.transport.toUpperCase()));
   right.append(statusPill(r));
   right.append(el("span", "token-meta", "▾"));
   row1.append(titleWrap, right);
@@ -72,6 +73,24 @@ function renderCard(entry) {
   if (r.fatalError) {
     body.append(el("p", "", `Fatal error: ${r.fatalError}`));
   } else {
+    if (r.context.heaviestTools && r.context.heaviestTools.length > 0) {
+      const box = el("div", "heaviest-box");
+      box.append(el("div", "heaviest-title", "Heaviest tools by context budget"));
+      const maxTok = Math.max(1, ...r.context.heaviestTools.map((t) => t.estimatedTokens));
+      for (const tool of r.context.heaviestTools) {
+        const row = el("div", "bar-row");
+        row.append(el("span", "bar-name", tool.name));
+        const track = el("div", "bar-track");
+        const fill = el("div", "bar-fill");
+        fill.style.width = `${Math.max(4, Math.round((tool.estimatedTokens / maxTok) * 100))}%`;
+        track.append(fill);
+        row.append(track);
+        row.append(el("span", "bar-val", `~${tool.estimatedTokens} tok`));
+        box.append(row);
+      }
+      body.append(box);
+    }
+
     const table = el("table", "check-table");
     const thead = el("thead");
     const hr = el("tr");
@@ -106,7 +125,11 @@ function renderCard(entry) {
   repoA.href = entry.repositoryUrl;
   repoA.target = "_blank";
   repoA.rel = "noreferrer";
-  links.append(repoA);
+  const badgeA = el("a", "", "Shields Badge JSON");
+  badgeA.href = `./badges/${entry.id}.json`;
+  badgeA.target = "_blank";
+  badgeA.rel = "noreferrer";
+  links.append(repoA, badgeA);
   body.append(links);
 
   card.append(head, body);

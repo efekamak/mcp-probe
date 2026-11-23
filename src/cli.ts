@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { formatMarkdownSummary, formatTerminalReport } from "./format.js";
 import { probeMcpServer, TOOL_VERSION } from "./runner.js";
+import { toSarifReport } from "./sarif.js";
 import type { ProbeTarget } from "./types.js";
 
 function printHelp(): void {
@@ -24,7 +25,9 @@ Options:
   --timeout <ms>         Per-step timeout in ms (default: 15000)
   --json                 Print JSON report to stdout
   --markdown             Print HTML/Markdown summary to stdout
+  --sarif                Print SARIF 2.1.0 report to stdout
   --out <file>           Write JSON report to a file
+  --sarif-out <file>     Write SARIF 2.1.0 report to a file
   --strict               Exit 1 on warnings as well as failures
   -v, --version          Print version
   -h, --help             Show this help
@@ -35,9 +38,11 @@ export type ParsedCliArgs = {
   target: ProbeTarget;
   json: boolean;
   markdown: boolean;
+  sarif: boolean;
   strict: boolean;
   timeoutMs: number;
   outPath: string | null;
+  sarifOutPath: string | null;
 };
 
 export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs } | { ok: false; exitCode: number; message: string } {
@@ -46,9 +51,11 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
   let cwd: string | undefined;
   let json = false;
   let markdown = false;
+  let sarif = false;
   let strict = false;
   let timeoutMs = 15_000;
   let outPath: string | null = null;
+  let sarifOutPath: string | null = null;
   const headers: Record<string, string> = {};
   const env: Record<string, string> = {};
   let stdioCmd: string[] = [];
@@ -83,6 +90,10 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
       markdown = true;
       continue;
     }
+    if (arg === "--sarif") {
+      sarif = true;
+      continue;
+    }
     if (arg === "--strict") {
       strict = true;
       continue;
@@ -93,6 +104,10 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
     }
     if (arg === "--out") {
       outPath = argv[++i] ?? null;
+      continue;
+    }
+    if (arg === "--sarif-out") {
+      sarifOutPath = argv[++i] ?? null;
       continue;
     }
     if (arg === "--timeout") {
@@ -138,9 +153,11 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
         },
         json,
         markdown,
+        sarif,
         strict,
         timeoutMs,
         outPath,
+        sarifOutPath,
       },
     };
   }
@@ -165,9 +182,11 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
         },
         json,
         markdown,
+        sarif,
         strict,
         timeoutMs,
         outPath,
+        sarifOutPath,
       },
     };
   }
@@ -190,7 +209,7 @@ async function main(): Promise<void> {
     process.exit(parsed.exitCode);
   }
 
-  const { target, json, markdown, strict, timeoutMs, outPath } = parsed.value;
+  const { target, json, markdown, sarif, strict, timeoutMs, outPath, sarifOutPath } = parsed.value;
   const report = await probeMcpServer(target, { stepTimeoutMs: timeoutMs, failOnWarn: strict });
 
   if (outPath) {
@@ -199,7 +218,15 @@ async function main(): Promise<void> {
     await fs.writeFile(resolvedOut, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   }
 
-  if (json) {
+  if (sarifOutPath) {
+    const resolvedSarif = path.resolve(sarifOutPath);
+    await fs.mkdir(path.dirname(resolvedSarif), { recursive: true });
+    await fs.writeFile(resolvedSarif, `${JSON.stringify(toSarifReport(report), null, 2)}\n`, "utf8");
+  }
+
+  if (sarif) {
+    process.stdout.write(`${JSON.stringify(toSarifReport(report), null, 2)}\n`);
+  } else if (json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } else if (markdown) {
     process.stdout.write(formatMarkdownSummary(report));

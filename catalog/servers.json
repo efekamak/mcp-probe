@@ -2,6 +2,38 @@
   "schemaVersion": 1,
   "servers": [
     {
+      "id": "cloudflare-docs-mcp",
+      "name": "Cloudflare Docs MCP",
+      "package": "docs.mcp.cloudflare.com",
+      "repositoryUrl": "https://github.com/cloudflare/mcp-server-cloudflare",
+      "transport": "http",
+      "url": "https://docs.mcp.cloudflare.com/mcp"
+    },
+    {
+      "id": "microsoft-learn-mcp",
+      "name": "Microsoft Learn MCP",
+      "package": "learn.microsoft.com/api/mcp",
+      "repositoryUrl": "https://github.com/MicrosoftDocs/mcp",
+      "transport": "http",
+      "url": "https://learn.microsoft.com/api/mcp"
+    },
+    {
+      "id": "deepwiki-mcp",
+      "name": "DeepWiki MCP",
+      "package": "mcp.deepwiki.com",
+      "repositoryUrl": "https://docs.devin.ai/work-with-devin/deepwiki-mcp",
+      "transport": "http",
+      "url": "https://mcp.deepwiki.com/mcp"
+    },
+    {
+      "id": "context7-http-mcp",
+      "name": "Context7 Remote MCP",
+      "package": "mcp.context7.com",
+      "repositoryUrl": "https://github.com/upstash/context7",
+      "transport": "http",
+      "url": "https://mcp.context7.com/mcp"
+    },
+    {
       "id": "playwright-mcp",
       "name": "Playwright MCP",
       "package": "@playwright/mcp",
@@ -21,7 +53,7 @@
     },
     {
       "id": "context7-mcp",
-      "name": "Context7 MCP",
+      "name": "Context7 MCP (stdio)",
       "package": "@upstash/context7-mcp",
       "repositoryUrl": "https://github.com/upstash/context7",
       "transport": "stdio",

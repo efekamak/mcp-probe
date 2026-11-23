@@ -5,6 +5,7 @@ import * as core from "@actions/core";
 import { formatMarkdownSummary } from "../src/format.js";
 import { probeMcpServer } from "../src/runner.js";
 import { scrubText } from "../src/sanitize.js";
+import { toSarifReport } from "../src/sarif.js";
 import type { ProbeTarget } from "../src/types.js";
 
 function parseArgsInput(raw: string): string[] {
@@ -64,15 +65,15 @@ function resolveWorkingDir(workspaceDir: string, workingDirInput: string): strin
   return resolvedTarget;
 }
 
-async function writeResultFile(runnerTemp: string, jsonText: string): Promise<string> {
+async function writeArtifactFile(runnerTemp: string, ext: "json" | "sarif", text: string): Promise<string> {
   const dir = path.join(path.resolve(runnerTemp), "mcp-probe");
   await fs.mkdir(dir, { recursive: true });
   const stat = await fs.lstat(dir);
   if (stat.isSymbolicLink()) {
     throw new Error("Refusing to write into symlinked RUNNER_TEMP/mcp-probe directory.");
   }
-  const filePath = path.join(dir, `${crypto.randomUUID()}.json`);
-  await fs.writeFile(filePath, jsonText, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  const filePath = path.join(dir, `${crypto.randomUUID()}.${ext}`);
+  await fs.writeFile(filePath, text, { encoding: "utf8", flag: "wx", mode: 0o600 });
   return filePath;
 }
 
@@ -120,8 +121,14 @@ export async function run(): Promise<void> {
     });
 
     let resultPath = "";
+    let sarifPath = "";
     if (runnerTemp.length > 0) {
-      resultPath = await writeResultFile(runnerTemp, `${JSON.stringify(report, null, 2)}\n`);
+      resultPath = await writeArtifactFile(runnerTemp, "json", `${JSON.stringify(report, null, 2)}\n`);
+      sarifPath = await writeArtifactFile(
+        runnerTemp,
+        "sarif",
+        `${JSON.stringify(toSarifReport(report), null, 2)}\n`,
+      );
     }
 
     core.setOutput("status", report.status);
@@ -131,6 +138,7 @@ export async function run(): Promise<void> {
     core.setOutput("estimated-tokens", String(report.context.estimatedTokens));
     core.setOutput("failed-checks", String(report.counts.fail));
     core.setOutput("result-path", resultPath);
+    core.setOutput("sarif-path", sarifPath);
 
     if (process.env.GITHUB_STEP_SUMMARY) {
       try {
@@ -164,6 +172,7 @@ export async function run(): Promise<void> {
     core.setOutput("estimated-tokens", "0");
     core.setOutput("failed-checks", "0");
     core.setOutput("result-path", "");
+    core.setOutput("sarif-path", "");
     core.setFailed(`mcp-probe error: ${msg}`);
   }
 }

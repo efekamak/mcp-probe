@@ -41,8 +41,43 @@ rl.on("line", (line) => {
       id: msg.id,
       result: {
         protocolVersion: "2025-03-26",
-        capabilities: { tools: {} },
+        capabilities: { tools: {}, prompts: {}, resources: {} },
         serverInfo: { name: "good-fixture-mcp", version: "1.0.0" },
+      },
+    });
+    return;
+  }
+
+  if (msg.method === "prompts/list") {
+    send({
+      jsonrpc: "2.0",
+      id: msg.id,
+      result: {
+        prompts: [
+          {
+            name: "summarize_doc",
+            description: "Summarize a documentation section.",
+            arguments: [{ name: "topic", description: "Topic to summarize", required: true }],
+          },
+        ],
+      },
+    });
+    return;
+  }
+
+  if (msg.method === "resources/list") {
+    send({
+      jsonrpc: "2.0",
+      id: msg.id,
+      result: {
+        resources: [
+          {
+            uri: "docs://getting-started",
+            name: "getting-started",
+            description: "Quickstart guide.",
+            mimeType: "text/markdown",
+          },
+        ],
       },
     });
     return;

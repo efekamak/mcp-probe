@@ -2,9 +2,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { probeMcpServer, TOOL_VERSION } from "../src/runner.js";
-import type { AuditReport } from "../src/types.js";
+import type { AuditReport, ProbeTarget } from "../src/types.js";
 
-type CatalogServer = {
+type CatalogStdioServer = {
   id: string;
   name: string;
   package: string;
@@ -13,6 +13,17 @@ type CatalogServer = {
   command: string;
   args: string[];
 };
+
+type CatalogHttpServer = {
+  id: string;
+  name: string;
+  package: string;
+  repositoryUrl: string;
+  transport: "http";
+  url: string;
+};
+
+type CatalogServer = CatalogStdioServer | CatalogHttpServer;
 
 type CatalogFile = {
   schemaVersion: 1;
@@ -63,13 +74,14 @@ const entries: ScorecardEntry[] = [];
 try {
   for (const srv of catalogRaw.servers) {
     if (dryRun) {
+      const display = srv.transport === "http" ? srv.url : [srv.command, ...srv.args].join(" ");
       const dummyReport: AuditReport = {
         schemaVersion: 1,
         tool: "mcp-probe",
         toolVersion: TOOL_VERSION,
         timestamp: new Date().toISOString(),
         durationMs: 0,
-        target: { transport: "stdio", display: [srv.command, ...srv.args].join(" ") },
+        target: { transport: srv.transport, display },
         server: { name: srv.id, version: "0.0.0", protocolVersion: "2025-03-26", capabilities: ["tools"] },
         score: 100,
         grade: "A",
@@ -82,7 +94,16 @@ try {
           gemini: { provider: "gemini", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
           cursor: { provider: "cursor", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
         },
-        context: { toolCount: 0, totalBytes: 0, estimatedTokens: 0, missingDescriptions: 0, missingAnnotations: 0, heaviestTools: [] },
+        context: {
+          toolCount: 0,
+          promptCount: 0,
+          resourceCount: 0,
+          totalBytes: 0,
+          estimatedTokens: 0,
+          missingDescriptions: 0,
+          missingAnnotations: 0,
+          heaviestTools: [],
+        },
         safety: { passed: true, errors: 0, warnings: 0, findings: [] },
         fatalError: null,
       };
@@ -96,20 +117,22 @@ try {
       continue;
     }
 
-    const isolatedDir = path.join(tempRoot, srv.id);
-    await fs.mkdir(isolatedDir, { recursive: true });
-    const resolvedArgs = srv.args.map((a) => (a === "__TEMP_DIR__" ? isolatedDir : a));
-
-    console.log(`Probing ${srv.name} (${srv.package})...`);
-    const report = await probeMcpServer(
-      {
+    let target: ProbeTarget;
+    if (srv.transport === "http") {
+      target = { transport: "http", url: srv.url };
+    } else {
+      const isolatedDir = path.join(tempRoot, srv.id);
+      await fs.mkdir(isolatedDir, { recursive: true });
+      target = {
         transport: "stdio",
         command: srv.command,
-        args: resolvedArgs,
+        args: srv.args.map((a) => (a === "__TEMP_DIR__" ? isolatedDir : a)),
         cwd: isolatedDir,
-      },
-      { stepTimeoutMs: 30_000 },
-    );
+      };
+    }
+
+    console.log(`Probing [${srv.transport}] ${srv.name} (${srv.package})...`);
+    const report = await probeMcpServer(target, { stepTimeoutMs: 30_000 });
 
     console.log(
       `  -> ${report.status.toUpperCase()} Grade ${report.grade} (${report.score}/100) | ${report.context.toolCount} tools (~${report.context.estimatedTokens} tokens)`,

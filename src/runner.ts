@@ -16,7 +16,7 @@ import type {
   ProviderId,
 } from "./types.js";
 
-export const TOOL_VERSION = "0.1.0";
+export const TOOL_VERSION = "0.2.0";
 
 function computeScoreAndGrade(checks: CheckResult[], connected: boolean): {
   score: number;
@@ -106,6 +106,8 @@ export async function probeMcpServer(
         providers: emptyProviders(),
         context: {
           toolCount: 0,
+          promptCount: 0,
+          resourceCount: 0,
           totalBytes: 0,
           estimatedTokens: 0,
           missingDescriptions: 0,
@@ -123,8 +125,17 @@ export async function probeMcpServer(
     }
 
     const schema = runSchemaChecks(protocol.tools);
-    const context = runContextChecks(protocol.tools);
-    const safety = runSafetyChecks(protocol.tools, protocol.rawErrorBodies);
+    const context = runContextChecks(
+      protocol.tools,
+      protocol.prompts.length,
+      protocol.resources.length,
+    );
+    const safety = runSafetyChecks(
+      protocol.tools,
+      protocol.rawErrorBodies,
+      protocol.prompts,
+      protocol.resources,
+    );
 
     const checks: CheckResult[] = [
       ...protocol.checks,

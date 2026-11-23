@@ -9,7 +9,11 @@ export function estimateTokens(text: string): number {
   return Math.ceil(bytes / 4);
 }
 
-export function runContextChecks(tools: McpTool[]): {
+export function runContextChecks(
+  tools: McpTool[],
+  promptCount: number = 0,
+  resourceCount: number = 0,
+): {
   context: ContextBudgetSummary;
   checks: CheckResult[];
 } {
@@ -99,6 +103,8 @@ export function runContextChecks(tools: McpTool[]): {
   return {
     context: {
       toolCount: tools.length,
+      promptCount,
+      resourceCount,
       totalBytes,
       estimatedTokens,
       missingDescriptions,

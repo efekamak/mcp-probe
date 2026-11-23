@@ -44,6 +44,8 @@ outputs:
     description: "Number of failed checks."
   result-path:
     description: "Path under RUNNER_TEMP to the JSON audit report."
+  sarif-path:
+    description: "Path under RUNNER_TEMP to the SARIF 2.1.0 report for GitHub Code Scanning."
 runs:
   using: "node24"
   main: "dist-action/index.js"

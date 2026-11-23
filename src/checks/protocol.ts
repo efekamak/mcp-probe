@@ -1,12 +1,14 @@
 import { scrubText } from "../sanitize.js";
 import type { ProbeTransport, RawProbeResult } from "../transports/types.js";
-import type { CheckResult, McpServerInfo, McpTool } from "../types.js";
+import type { CheckResult, McpPrompt, McpResource, McpServerInfo, McpTool } from "../types.js";
 
 export type ProtocolRunResult = {
   connected: boolean;
   fatalError: string | null;
   server: McpServerInfo;
   tools: McpTool[];
+  prompts: McpPrompt[];
+  resources: McpResource[];
   checks: CheckResult[];
   rawErrorBodies: string[];
 };
@@ -31,6 +33,17 @@ function summarizeRaw(res: RawProbeResult): string {
   return scrubText(res.rawBody, 160) || "empty response";
 }
 
+function hasPathTraversal(uri: string): boolean {
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(uri);
+    } catch {
+      return uri;
+    }
+  })();
+  return /(?:^|[/\\])\.\.(?:[/\\]|$)/.test(decoded);
+}
+
 export async function runProtocolChecks(
   transport: ProbeTransport,
   stepTimeoutMs: number,
@@ -44,6 +57,8 @@ export async function runProtocolChecks(
     capabilities: [],
   };
   let tools: McpTool[] = [];
+  let prompts: McpPrompt[] = [];
+  let resources: McpResource[] = [];
 
   try {
     await transport.connect(stepTimeoutMs);
@@ -53,6 +68,8 @@ export async function runProtocolChecks(
       fatalError: scrubText(err instanceof Error ? err.message : String(err), 400),
       server,
       tools,
+      prompts,
+      resources,
       checks,
       rawErrorBodies,
     };
@@ -64,7 +81,7 @@ export async function runProtocolChecks(
     {
       protocolVersion: "2025-03-26",
       capabilities: {},
-      clientInfo: { name: "mcp-probe", version: "0.1.0" },
+      clientInfo: { name: "mcp-probe", version: "0.2.0" },
     },
     stepTimeoutMs,
   );
@@ -84,6 +101,8 @@ export async function runProtocolChecks(
       fatalError: `MCP initialize handshake failed: ${detail}`,
       server,
       tools,
+      prompts,
+      resources,
       checks,
       rawErrorBodies,
     };
@@ -121,7 +140,7 @@ export async function runProtocolChecks(
   try {
     await transport.notify("notifications/initialized");
   } catch {
-    // Some servers don't require or ignore notification errors; handled by subsequent probes.
+    // Handled by subsequent probes.
   }
 
   // 2. tools/list
@@ -168,6 +187,98 @@ export async function runProtocolChecks(
       status: "fail",
       summary: `tools/list failed (${summarizeRaw(listRes)}).`,
     });
+  }
+
+  // 2b. prompts/list (only when server advertises prompts capability)
+  if (server.capabilities.includes("prompts")) {
+    const promptsRes = await transport.request("prompts/list", {}, Math.min(stepTimeoutMs, 8_000));
+    if (promptsRes.received && promptsRes.parsed?.result && typeof promptsRes.parsed.result === "object") {
+      const rawPrompts = (promptsRes.parsed.result as { prompts?: unknown }).prompts;
+      if (Array.isArray(rawPrompts)) {
+        prompts = rawPrompts.filter(
+          (p): p is McpPrompt => Boolean(p && typeof p === "object" && typeof (p as { name?: unknown }).name === "string"),
+        );
+        const names = prompts.map((p) => p.name);
+        const dups = names.filter((n, i) => names.indexOf(n) !== i);
+        checks.push({
+          id: "protocol.prompts-list",
+          category: "protocol",
+          title: "prompts/list response structure",
+          status: dups.length === 0 ? "pass" : "fail",
+          summary:
+            dups.length === 0
+              ? `Returned ${prompts.length} prompt(s) with unique names.`
+              : `Returned duplicate prompt name(s): ${[...new Set(dups)].join(", ")}.`,
+        });
+      } else {
+        checks.push({
+          id: "protocol.prompts-list",
+          category: "protocol",
+          title: "prompts/list response structure",
+          status: "fail",
+          summary: "prompts/list result did not contain a prompts array.",
+        });
+      }
+    } else {
+      if (promptsRes.rawBody) rawErrorBodies.push(promptsRes.rawBody);
+      checks.push({
+        id: "protocol.prompts-list",
+        category: "protocol",
+        title: "prompts/list response structure",
+        status: "fail",
+        summary: `Server advertised prompts capability, but prompts/list failed (${summarizeRaw(promptsRes)}).`,
+      });
+    }
+  }
+
+  // 2c. resources/list (only when server advertises resources capability)
+  if (server.capabilities.includes("resources")) {
+    const resList = await transport.request("resources/list", {}, Math.min(stepTimeoutMs, 8_000));
+    if (resList.received && resList.parsed?.result && typeof resList.parsed.result === "object") {
+      const rawResources = (resList.parsed.result as { resources?: unknown }).resources;
+      if (Array.isArray(rawResources)) {
+        resources = rawResources.filter(
+          (r): r is McpResource =>
+            Boolean(
+              r &&
+                typeof r === "object" &&
+                typeof (r as { uri?: unknown }).uri === "string" &&
+                typeof (r as { name?: unknown }).name === "string",
+            ),
+        );
+        const badUris = resources
+          .map((r) => r.uri)
+          .filter((uri) => !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(uri) || hasPathTraversal(uri));
+        checks.push({
+          id: "protocol.resources-list",
+          category: "protocol",
+          title: "resources/list URI structure",
+          status: badUris.length === 0 ? "pass" : "fail",
+          summary:
+            badUris.length === 0
+              ? `Returned ${resources.length} resource(s) with valid URIs.`
+              : `Found ${badUris.length} malformed or path-traversal resource URI(s).`,
+          details: badUris.slice(0, 5).map((u) => scrubText(u, 140)),
+        });
+      } else {
+        checks.push({
+          id: "protocol.resources-list",
+          category: "protocol",
+          title: "resources/list URI structure",
+          status: "fail",
+          summary: "resources/list result did not contain a resources array.",
+        });
+      }
+    } else {
+      if (resList.rawBody) rawErrorBodies.push(resList.rawBody);
+      checks.push({
+        id: "protocol.resources-list",
+        category: "protocol",
+        title: "resources/list URI structure",
+        status: "fail",
+        summary: `Server advertised resources capability, but resources/list failed (${summarizeRaw(resList)}).`,
+      });
+    }
   }
 
   // 3. Unknown method -> JSON-RPC -32601
@@ -281,7 +392,46 @@ export async function runProtocolChecks(
     });
   }
 
-  // 6. Malformed JSON -> -32700 (never HTML / crash)
+  // 6. Empty JSON-RPC batch [] -> -32600 (JSON-RPC 2.0 Section 6)
+  if (transport.kind === "http") {
+    const emptyBatchRes = await transport.sendRawJson([], null, negTimeout);
+    if (emptyBatchRes.rawBody) rawErrorBodies.push(emptyBatchRes.rawBody);
+    if (emptyBatchRes.parsed?.error?.code === -32600) {
+      checks.push({
+        id: "protocol.empty-batch",
+        category: "protocol",
+        title: "Empty JSON-RPC batch rejected with -32600",
+        status: "pass",
+        summary: "Rejected empty JSON-RPC batch [] with -32600 (Invalid Request).",
+      });
+    } else if (looksLikeHtml(emptyBatchRes.rawBody, emptyBatchRes.contentType)) {
+      checks.push({
+        id: "protocol.empty-batch",
+        category: "protocol",
+        title: "Empty JSON-RPC batch rejected with -32600",
+        status: "fail",
+        summary: "Returned HTML error page for empty JSON-RPC batch [].",
+      });
+    } else if (emptyBatchRes.parsed?.error) {
+      checks.push({
+        id: "protocol.empty-batch",
+        category: "protocol",
+        title: "Empty JSON-RPC batch rejected with -32600",
+        status: "warn",
+        summary: `Rejected empty batch [] with JSON-RPC ${emptyBatchRes.parsed.error.code} instead of -32600.`,
+      });
+    } else {
+      checks.push({
+        id: "protocol.empty-batch",
+        category: "protocol",
+        title: "Empty JSON-RPC batch rejected with -32600",
+        status: "fail",
+        summary: `Expected JSON-RPC -32600 for empty batch [], got ${summarizeRaw(emptyBatchRes)}.`,
+      });
+    }
+  }
+
+  // 7. Malformed JSON -> -32700 (never HTML / crash)
   const malformedRes = await transport.sendRawText("{not valid json", negTimeout);
   if (malformedRes.rawBody) rawErrorBodies.push(malformedRes.rawBody);
   if (malformedRes.parsed?.error?.code === -32700) {
@@ -326,7 +476,7 @@ export async function runProtocolChecks(
     });
   }
 
-  // 7. Server still responsive after negative probes
+  // 8. Server still responsive after negative probes
   const pingRes = await transport.request("ping", undefined, Math.min(stepTimeoutMs, 5000));
   const survived =
     transport.isAlive() &&
@@ -342,7 +492,7 @@ export async function runProtocolChecks(
       : `Server became unresponsive after negative probes (${summarizeRaw(pingRes)}).`,
   });
 
-  // 8. Stdio stdout framing cleanliness
+  // 9. Stdio stdout framing cleanliness
   if (transport.kind === "stdio") {
     const stray = transport.getStrayStdoutLines();
     checks.push({
@@ -363,6 +513,8 @@ export async function runProtocolChecks(
     fatalError: null,
     server,
     tools,
+    prompts,
+    resources,
     checks,
     rawErrorBodies,
   };

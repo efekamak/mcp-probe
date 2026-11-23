@@ -25,6 +25,27 @@ export type McpTool = {
   annotations?: McpToolAnnotations;
 };
 
+export type McpPromptArgument = {
+  name: string;
+  description?: string;
+  required?: boolean;
+};
+
+export type McpPrompt = {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: McpPromptArgument[];
+};
+
+export type McpResource = {
+  uri: string;
+  name: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+};
+
 export type McpServerInfo = {
   name: string | null;
   version: string | null;
@@ -47,6 +68,7 @@ export type ProviderIssue = {
   severity: "fail" | "warn";
   message: string;
   path?: string;
+  fix?: string;
 };
 
 export type ProviderCompatibility = {
@@ -69,6 +91,8 @@ export type ToolTokenEntry = {
 
 export type ContextBudgetSummary = {
   toolCount: number;
+  promptCount: number;
+  resourceCount: number;
   totalBytes: number;
   estimatedTokens: number;
   missingDescriptions: number;
