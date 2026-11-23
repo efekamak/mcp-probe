@@ -45,14 +45,64 @@ async function isExecutableFile(candidate: string): Promise<boolean> {
   }
 }
 
-async function findNpmBinScript(scriptName: "npm-cli.js" | "npx-cli.js"): Promise<string | null> {
-  const nodeDirs = [path.dirname(process.execPath)];
+async function probeNodeVersion(nodePath: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    let out = "";
+    let timer: NodeJS.Timeout | undefined;
+    const done = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(ok);
+    };
+    let child: ChildProcess;
+    try {
+      child = spawn(nodePath, ["--version"], {
+        env: buildSafeChildEnv(),
+        shell: false,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      done(false);
+      return;
+    }
+    timer = setTimeout(() => {
+      killProcessTree(child.pid);
+      done(false);
+    }, 5000);
+    child.stdout?.on("data", (c: Buffer) => {
+      if (out.length < 64) out += c.toString("utf8");
+    });
+    child.on("error", () => done(false));
+    child.on("close", (code) => done(code === 0 && /^v\d+\.\d+\.\d+/.test(out.trim())));
+  });
+}
+
+async function findPreferredNode(): Promise<string> {
+  const fileName = process.platform === "win32" ? "node.exe" : "node";
+  for (const dir of absolutePathDirs()) {
+    const candidate = path.join(dir, fileName);
+    if ((await isExecutableFile(candidate)) && (await probeNodeVersion(candidate))) {
+      return candidate;
+    }
+  }
+  return process.execPath;
+}
+
+async function findNpmBinScript(
+  nodePath: string,
+  scriptName: "npm-cli.js" | "npx-cli.js",
+): Promise<string | null> {
+  const nodeDirs = [path.dirname(nodePath)];
   try {
-    const realDir = path.dirname(await fs.realpath(process.execPath));
+    const realDir = path.dirname(await fs.realpath(nodePath));
     if (!nodeDirs.includes(realDir)) nodeDirs.push(realDir);
   } catch {
     // ignore
   }
+  const hostDir = path.dirname(process.execPath);
+  if (!nodeDirs.includes(hostDir)) nodeDirs.push(hostDir);
 
   for (const dir of [...nodeDirs, ...absolutePathDirs()]) {
     const candidates = [
@@ -102,16 +152,18 @@ export async function resolveStdioCommand(
   args: string[],
 ): Promise<{ execPath: string; execArgs: string[] }> {
   if (command === "node") {
-    return { execPath: process.execPath, execArgs: args };
+    return { execPath: await findPreferredNode(), execArgs: args };
   }
   if (command === "npm") {
-    const cli = await findNpmBinScript("npm-cli.js");
-    if (cli) return { execPath: process.execPath, execArgs: [cli, ...args] };
+    const nodePath = await findPreferredNode();
+    const cli = await findNpmBinScript(nodePath, "npm-cli.js");
+    if (cli) return { execPath: nodePath, execArgs: [cli, ...args] };
     return { execPath: "npm", execArgs: args };
   }
   if (command === "npx") {
-    const cli = await findNpmBinScript("npx-cli.js");
-    if (cli) return { execPath: process.execPath, execArgs: [cli, ...args] };
+    const nodePath = await findPreferredNode();
+    const cli = await findNpmBinScript(nodePath, "npx-cli.js");
+    if (cli) return { execPath: nodePath, execArgs: [cli, ...args] };
     return { execPath: "npx", execArgs: args };
   }
   if (command === "python" || command === "python3") {
@@ -255,6 +307,10 @@ export class StdioProbeTransport implements ProbeTransport {
         this.failAllWaiters(this.exitError);
       });
 
+      child.stdin?.on("error", (err) => {
+        // Ignore EPIPE / broken pipe when a server crashes mid-probe; waiters fail on close.
+        this.exitError = this.exitError ?? `stdin error: ${err.message}`;
+      });
       child.stdout?.on("data", (chunk: Buffer) => {
         this.handleStdoutChunk(chunk.toString("utf8"));
       });

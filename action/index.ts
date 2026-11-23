@@ -51,8 +51,12 @@ function parseArgsInput(raw: string): string[] {
   return tokens;
 }
 
-function resolveWorkingDir(workspaceDir: string, workingDirInput: string): string {
-  const cleaned = workingDirInput.trim() || ".";
+async function resolveWorkingDir(workspaceDir: string, workingDirInput: string): Promise<string> {
+  const trimmed = workingDirInput.trim();
+  const cleaned =
+    trimmed === "" || trimmed === "." || trimmed === "./" || trimmed === ".\\"
+      ? "."
+      : trimmed.replace(/^(?:\.\/|\.\\)+/, "").replace(/[\\/]+$/, "") || ".";
   if (path.isAbsolute(cleaned) || /^[A-Za-z]:/.test(cleaned)) {
     throw new Error("working-directory must be a relative path inside GITHUB_WORKSPACE.");
   }
@@ -62,7 +66,15 @@ function resolveWorkingDir(workspaceDir: string, workingDirInput: string): strin
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error("working-directory escapes GITHUB_WORKSPACE.");
   }
-  return resolvedTarget;
+  const [realBase, realTarget] = await Promise.all([
+    fs.realpath(resolvedBase),
+    fs.realpath(resolvedTarget),
+  ]);
+  const realRel = path.relative(realBase, realTarget);
+  if (realRel.startsWith("..") || path.isAbsolute(realRel)) {
+    throw new Error("working-directory symlink escapes GITHUB_WORKSPACE.");
+  }
+  return realTarget;
 }
 
 async function writeArtifactFile(runnerTemp: string, ext: "json" | "sarif", text: string): Promise<string> {
@@ -106,7 +118,7 @@ export async function run(): Promise<void> {
     if (httpUrl.length > 0) {
       target = { transport: "http", url: httpUrl };
     } else {
-      const cwd = resolveWorkingDir(workspaceDir, workingDirInput);
+      const cwd = await resolveWorkingDir(workspaceDir, workingDirInput);
       target = {
         transport: "stdio",
         command,

@@ -106,6 +106,14 @@ export class HttpProbeTransport implements ProbeTransport {
           const json: unknown = JSON.parse(rawBody);
           if (json && typeof json === "object" && !Array.isArray(json)) {
             parsed = json as JsonRpcResponse;
+          } else if (
+            Array.isArray(json) &&
+            json.length === 1 &&
+            json[0] &&
+            typeof json[0] === "object" &&
+            !Array.isArray(json[0])
+          ) {
+            parsed = json[0] as JsonRpcResponse;
           }
         } catch {
           parsed = null;

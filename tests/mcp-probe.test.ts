@@ -7,7 +7,8 @@ import * as path from "node:path";
 import { describe, it } from "node:test";
 import { parseCliArgs } from "../src/cli.js";
 import { formatMarkdownSummary, formatTerminalReport } from "../src/format.js";
-import { probeMcpServer } from "../src/runner.js";
+import { probeMcpServer, TOOL_VERSION } from "../src/runner.js";
+import { scrubText } from "../src/sanitize.js";
 import { toSarifReport } from "../src/sarif.js";
 
 const REPO_ROOT = process.cwd();
@@ -299,5 +300,48 @@ describe("CLI parsing and bundled GitHub Action", () => {
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  it("handles a stdio server that crashes mid-probe without unhandled EPIPE", async () => {
+    const crashingScript = [
+      "import * as readline from 'node:readline';",
+      "const rl = readline.createInterface({ input: process.stdin });",
+      "rl.on('line', (line) => {",
+      "  const m = JSON.parse(line);",
+      "  if (m.method === 'initialize') {",
+      "    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'crasher', version: '0.1.0' } } }) + '\\n');",
+      "  } else if (m.method === 'tools/list') {",
+      "    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result: { tools: [] } }) + '\\n');",
+      "    process.exit(1);",
+      "  }",
+      "});",
+    ].join("\n");
+
+    const report = await probeMcpServer(
+      { transport: "stdio", command: "node", args: ["--input-type=module", "-e", crashingScript] },
+      { stepTimeoutMs: 3000 },
+    );
+    assert.equal(report.status, "failed");
+    const byId = new Map(report.checks.map((c) => [c.id, c]));
+    assert.equal(byId.get("protocol.alive-after-probes")?.status, "fail");
+  });
+
+  it("scrubs URL query-string secrets and runs built CLI --version cleanly", async () => {
+    const scrubbed = scrubText("https://mcp.example.com/mcp?api_key=super_secret_12345&ok=1");
+    assert.doesNotMatch(scrubbed, /super_secret_12345/);
+    assert.match(scrubbed, /api_key=\[REDACTED\]/);
+
+    const cliPath = path.join(REPO_ROOT, "dist", "cli.js");
+    const out = await new Promise<string>((resolve, reject) => {
+      let stdout = "";
+      const child = spawn(process.execPath, [cliPath, "--version"], { stdio: ["ignore", "pipe", "pipe"] });
+      child.stdout.on("data", (c: Buffer) => { stdout += c.toString("utf8"); });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code !== 0) reject(new Error(`CLI exited ${code}`));
+        else resolve(stdout.trim());
+      });
+    });
+    assert.equal(out, TOOL_VERSION);
   });
 });

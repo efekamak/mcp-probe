@@ -10,6 +10,7 @@ const SECRET_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\b(xox[baprs]-[A-Za-z0-9-]{10,})\b/g, replacement: "[REDACTED_SLACK_TOKEN]" },
   { pattern: /(Bearer\s+)[A-Za-z0-9._~+/=-]{16,}/gi, replacement: "$1[REDACTED_TOKEN]" },
   { pattern: /(https?:\/\/[^:\s/@]+:)[^@\s/]+@/gi, replacement: "$1[REDACTED]@" },
+  { pattern: /([?&](?:api_?key|token|access_?token|secret|auth|key)=)[^&\s"'`]+/gi, replacement: "$1[REDACTED]" },
 ];
 
 const LOCAL_PATH_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [

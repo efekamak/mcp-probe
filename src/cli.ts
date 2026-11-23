@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { formatMarkdownSummary, formatTerminalReport } from "./format.js";
 import { probeMcpServer, TOOL_VERSION } from "./runner.js";
 import { toSarifReport } from "./sarif.js";
@@ -243,9 +245,19 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-const isDirectRun =
-  process.argv[1] !== undefined &&
-  (process.argv[1].endsWith("cli.js") || process.argv[1].endsWith("cli.ts"));
-if (isDirectRun) {
+function isDirectCliExecution(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    const argvReal = realpathSync(process.argv[1]);
+    const selfReal = realpathSync(fileURLToPath(import.meta.url));
+    return process.platform === "win32"
+      ? argvReal.toLowerCase() === selfReal.toLowerCase()
+      : argvReal === selfReal;
+  } catch {
+    return process.argv[1].endsWith("cli.js") || process.argv[1].endsWith("cli.ts");
+  }
+}
+
+if (isDirectCliExecution()) {
   void main();
 }
