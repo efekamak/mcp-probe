@@ -208,7 +208,7 @@ export async function runProtocolChecks(
     const unknownToolRes = await transport.request(
       "tools/call",
       { name: "__mcp_probe_nonexistent_tool__", arguments: {} },
-      Math.min(stepTimeoutMs, 5000),
+      Math.min(stepTimeoutMs, 10_000),
     );
     if (unknownToolRes.rawBody) rawErrorBodies.push(unknownToolRes.rawBody);
     const isToolError =

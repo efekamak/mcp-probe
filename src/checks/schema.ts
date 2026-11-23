@@ -323,6 +323,11 @@ export function runSchemaChecks(tools: McpTool[]): {
             ? "Google Gemini"
             : "Cursor";
 
+    const orderedIssues = [
+      ...allIssues.filter((i) => i.severity === "fail"),
+      ...allIssues.filter((i) => i.severity === "warn"),
+    ];
+
     checks.push({
       id: `schema.compat-${provider}`,
       category: "schema",
@@ -334,7 +339,7 @@ export function runSchemaChecks(tools: McpTool[]): {
           : errors === 0 && warnings === 0
             ? `All ${tools.length}/${tools.length} tool(s) compatible with ${label}.`
             : `${compatibleTools}/${tools.length} tool(s) compatible with ${label} (${errors} error(s), ${warnings} warning(s)).`,
-      details: allIssues
+      details: orderedIssues
         .slice(0, 8)
         .map((i) => `[${i.severity}] ${i.tool}${i.path ? ` (${i.path})` : ""}: ${i.message}`),
     });

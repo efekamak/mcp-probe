@@ -58,10 +58,11 @@ function renderCard(entry) {
     el("span", `pill ${safetyCls}`, `Safety ${r.safety.passed ? "✓" : "✕"}`),
   );
 
+  const toolLabel = r.context.toolCount === 1 ? "1 tool" : `${r.context.toolCount} tools`;
   const tokenMeta = el(
     "div",
     "token-meta",
-    `${r.context.toolCount} tools · ~${r.context.estimatedTokens.toLocaleString("en-US")} est. tokens · ${(r.context.totalBytes / 1024).toFixed(1)} KiB`,
+    `${toolLabel} · ~${r.context.estimatedTokens.toLocaleString("en-US")} est. tokens · ${(r.context.totalBytes / 1024).toFixed(1)} KiB`,
   );
 
   row2.append(providers, tokenMeta);
