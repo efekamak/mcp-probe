@@ -1,3 +1,15 @@
+const SAFE_SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+function safeHttpsUrl(candidate) {
+  if (typeof candidate !== "string") return null;
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === "https:" ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -121,15 +133,21 @@ function renderCard(entry) {
   }
 
   const links = el("div", "body-links");
-  const repoA = el("a", "", "Repository ↗");
-  repoA.href = entry.repositoryUrl;
-  repoA.target = "_blank";
-  repoA.rel = "noreferrer";
-  const badgeA = el("a", "", "Shields Badge JSON");
-  badgeA.href = `./badges/${entry.id}.json`;
-  badgeA.target = "_blank";
-  badgeA.rel = "noreferrer";
-  links.append(repoA, badgeA);
+  const safeRepoUrl = safeHttpsUrl(entry.repositoryUrl);
+  if (safeRepoUrl) {
+    const repoA = el("a", "", "Repository ↗");
+    repoA.href = safeRepoUrl;
+    repoA.target = "_blank";
+    repoA.rel = "noopener noreferrer";
+    links.append(repoA);
+  }
+  if (typeof entry.id === "string" && SAFE_SLUG_REGEX.test(entry.id)) {
+    const badgeA = el("a", "", "Shields Badge JSON");
+    badgeA.href = `./badges/${entry.id}.json`;
+    badgeA.target = "_blank";
+    badgeA.rel = "noopener noreferrer";
+    links.append(badgeA);
+  }
   body.append(links);
 
   card.append(head, body);

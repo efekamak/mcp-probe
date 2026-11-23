@@ -16,8 +16,9 @@ const GOOD_STDIO = path.join(REPO_ROOT, "tests", "fixtures", "good-stdio-server.
 const BROKEN_STDIO = path.join(REPO_ROOT, "tests", "fixtures", "broken-stdio-server.mjs");
 
 async function startLocalHttpServer(
-  mode: "good-json" | "good-sse" | "broken-html",
+  mode: "good-json" | "good-sse" | "open-sse" | "broken-html" | "malformed-tools",
 ): Promise<{ url: string; close: () => Promise<void> }> {
+  const openSockets = new Set<import("node:net").Socket>();
   const server = http.createServer((req, res) => {
     if (req.method === "DELETE") {
       res.writeHead(204);
@@ -68,6 +69,15 @@ async function startLocalHttpServer(
       }
 
       const respond = (payload: unknown) => {
+        if (mode === "open-sse") {
+          res.writeHead(200, {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "sess-open",
+          });
+          // Intentionally keep the SSE stream open after flushing the JSON-RPC event.
+          res.write(`event: message\ndata: ${JSON.stringify(payload)}\n\n`);
+          return;
+        }
         if (mode === "good-sse") {
           res.writeHead(200, {
             "content-type": "text/event-stream",
@@ -100,6 +110,23 @@ async function startLocalHttpServer(
         return;
       }
       if (msg.method === "tools/list") {
+        if (mode === "malformed-tools") {
+          respond({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+              tools: [
+                {
+                  name: "ok_tool",
+                  description: "Valid tool.",
+                  inputSchema: { type: "object", properties: {} },
+                },
+                { description: "Missing required tool name" },
+              ],
+            },
+          });
+          return;
+        }
         respond({
           jsonrpc: "2.0",
           id: msg.id,
@@ -137,13 +164,21 @@ async function startLocalHttpServer(
       });
     });
   });
+  server.on("connection", (socket) => {
+    openSockets.add(socket);
+    socket.on("close", () => openSockets.delete(socket));
+  });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();
   if (!addr || typeof addr === "string") throw new Error("Failed to bind local server");
   return {
     url: `http://127.0.0.1:${addr.port}/mcp`,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise<void>((resolve) => {
+        for (const s of openSockets) s.destroy();
+        server.close(() => resolve());
+      }),
   };
 }
 
@@ -237,6 +272,33 @@ describe("mcp-probe Streamable HTTP audit", () => {
       await srv.close();
     }
   });
+
+  it("completes promptly on open Streamable HTTP SSE streams without waiting for EOF", async () => {
+    const srv = await startLocalHttpServer("open-sse");
+    try {
+      const started = Date.now();
+      const report = await probeMcpServer({ transport: "http", url: srv.url }, { stepTimeoutMs: 5_000 });
+      const elapsed = Date.now() - started;
+      assert.equal(report.fatalError, null);
+      assert.equal(report.counts.fail, 0);
+      assert.equal(report.grade, "A");
+      assert.ok(elapsed < 3_000, `Expected open SSE probe to return early, took ${elapsed}ms`);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("fails protocol.tools-list when tools array contains malformed entries", async () => {
+    const srv = await startLocalHttpServer("malformed-tools");
+    try {
+      const report = await probeMcpServer({ transport: "http", url: srv.url });
+      const byId = new Map(report.checks.map((c) => [c.id, c]));
+      assert.equal(byId.get("protocol.tools-list")?.status, "fail");
+      assert.match(byId.get("protocol.tools-list")?.summary ?? "", /malformed tool entry/i);
+    } finally {
+      await srv.close();
+    }
+  });
 });
 
 describe("CLI parsing and bundled GitHub Action", () => {
@@ -258,6 +320,10 @@ describe("CLI parsing and bundled GitHub Action", () => {
 
     const bad = parseCliArgs([]);
     assert.equal(bad.ok, false);
+
+    assert.equal(parseCliArgs(["--cwd"]).ok, false);
+    assert.equal(parseCliArgs(["--out"]).ok, false);
+    assert.equal(parseCliArgs(["--sarif-out", "--", "node", "x.js"]).ok, false);
   });
 
   it("executes the committed dist-action/index.js bundle end-to-end", async () => {
@@ -326,10 +392,19 @@ describe("CLI parsing and bundled GitHub Action", () => {
     assert.equal(byId.get("protocol.alive-after-probes")?.status, "fail");
   });
 
-  it("scrubs URL query-string secrets and runs built CLI --version cleanly", async () => {
+  it("scrubs URL query-string, JWT, npm, and private-key secrets and runs built CLI --version cleanly", async () => {
     const scrubbed = scrubText("https://mcp.example.com/mcp?api_key=super_secret_12345&ok=1");
     assert.doesNotMatch(scrubbed, /super_secret_12345/);
     assert.match(scrubbed, /api_key=\[REDACTED\]/);
+
+    const jwtScrubbed = scrubText("token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123def456ghi789");
+    assert.match(jwtScrubbed, /\[REDACTED_JWT\]/);
+
+    const npmScrubbed = scrubText("npm_1234567890abcdefghij1234");
+    assert.match(npmScrubbed, /\[REDACTED_NPM_TOKEN\]/);
+
+    const keyScrubbed = scrubText("-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----");
+    assert.match(keyScrubbed, /\[REDACTED_PRIVATE_KEY\]/);
 
     const cliPath = path.join(REPO_ROOT, "dist", "cli.js");
     const out = await new Promise<string>((resolve, reject) => {

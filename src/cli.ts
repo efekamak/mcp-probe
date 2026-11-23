@@ -101,15 +101,27 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
       continue;
     }
     if (arg === "--cwd") {
-      cwd = argv[++i];
+      const next = argv[++i];
+      if (!next || next === "--") {
+        return { ok: false, exitCode: 2, message: "--cwd requires a directory path." };
+      }
+      cwd = next;
       continue;
     }
     if (arg === "--out") {
-      outPath = argv[++i] ?? null;
+      const next = argv[++i];
+      if (!next || next === "--") {
+        return { ok: false, exitCode: 2, message: "--out requires a file path." };
+      }
+      outPath = next;
       continue;
     }
     if (arg === "--sarif-out") {
-      sarifOutPath = argv[++i] ?? null;
+      const next = argv[++i];
+      if (!next || next === "--") {
+        return { ok: false, exitCode: 2, message: "--sarif-out requires a file path." };
+      }
+      sarifOutPath = next;
       continue;
     }
     if (arg === "--timeout") {

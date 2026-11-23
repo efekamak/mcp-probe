@@ -1,6 +1,7 @@
 import { scrubText } from "../sanitize.js";
 import type { ProbeTransport, RawProbeResult } from "../transports/types.js";
 import type { CheckResult, McpPrompt, McpResource, McpServerInfo, McpTool } from "../types.js";
+import { TOOL_VERSION } from "../version.js";
 
 export type ProtocolRunResult = {
   connected: boolean;
@@ -81,7 +82,7 @@ export async function runProtocolChecks(
     {
       protocolVersion: "2025-03-26",
       capabilities: {},
-      clientInfo: { name: "mcp-probe", version: "0.2.0" },
+      clientInfo: { name: "mcp-probe", version: TOOL_VERSION },
     },
     stepTimeoutMs,
   );
@@ -148,18 +149,21 @@ export async function runProtocolChecks(
   if (listRes.received && listRes.parsed?.result && typeof listRes.parsed.result === "object") {
     const rawTools = (listRes.parsed.result as { tools?: unknown }).tools;
     if (Array.isArray(rawTools)) {
-      tools = rawTools.filter((t): t is McpTool => Boolean(t && typeof t === "object" && typeof (t as { name?: unknown }).name === "string"));
+      tools = rawTools.filter((t): t is McpTool => Boolean(t && typeof t === "object" && typeof (t as { name?: unknown }).name === "string" && (t as { name: string }).name.length > 0));
+      const malformedTools = rawTools.length - tools.length;
       const names = tools.map((t) => t.name);
       const duplicates = names.filter((n, i) => names.indexOf(n) !== i);
       checks.push({
         id: "protocol.tools-list",
         category: "protocol",
         title: "tools/list response structure",
-        status: duplicates.length === 0 ? "pass" : "fail",
+        status: malformedTools === 0 && duplicates.length === 0 ? "pass" : "fail",
         summary:
-          duplicates.length === 0
-            ? `Returned ${tools.length} tool(s) with unique names.`
-            : `Returned duplicate tool name(s): ${[...new Set(duplicates)].join(", ")}.`,
+          malformedTools > 0
+            ? `Returned ${malformedTools} malformed tool entry/entries missing a non-empty string name.`
+            : duplicates.length === 0
+              ? `Returned ${tools.length} tool(s) with unique names.`
+              : `Returned duplicate tool name(s): ${[...new Set(duplicates)].join(", ")}.`,
       });
     } else {
       checks.push({
@@ -196,19 +200,22 @@ export async function runProtocolChecks(
       const rawPrompts = (promptsRes.parsed.result as { prompts?: unknown }).prompts;
       if (Array.isArray(rawPrompts)) {
         prompts = rawPrompts.filter(
-          (p): p is McpPrompt => Boolean(p && typeof p === "object" && typeof (p as { name?: unknown }).name === "string"),
+          (p): p is McpPrompt => Boolean(p && typeof p === "object" && typeof (p as { name?: unknown }).name === "string" && (p as { name: string }).name.length > 0),
         );
+        const malformedPrompts = rawPrompts.length - prompts.length;
         const names = prompts.map((p) => p.name);
         const dups = names.filter((n, i) => names.indexOf(n) !== i);
         checks.push({
           id: "protocol.prompts-list",
           category: "protocol",
           title: "prompts/list response structure",
-          status: dups.length === 0 ? "pass" : "fail",
+          status: malformedPrompts === 0 && dups.length === 0 ? "pass" : "fail",
           summary:
-            dups.length === 0
-              ? `Returned ${prompts.length} prompt(s) with unique names.`
-              : `Returned duplicate prompt name(s): ${[...new Set(dups)].join(", ")}.`,
+            malformedPrompts > 0
+              ? `Returned ${malformedPrompts} malformed prompt entry/entries missing a non-empty string name.`
+              : dups.length === 0
+                ? `Returned ${prompts.length} prompt(s) with unique names.`
+                : `Returned duplicate prompt name(s): ${[...new Set(dups)].join(", ")}.`,
         });
       } else {
         checks.push({
@@ -243,9 +250,12 @@ export async function runProtocolChecks(
               r &&
                 typeof r === "object" &&
                 typeof (r as { uri?: unknown }).uri === "string" &&
-                typeof (r as { name?: unknown }).name === "string",
+                (r as { uri: string }).uri.length > 0 &&
+                typeof (r as { name?: unknown }).name === "string" &&
+                (r as { name: string }).name.length > 0,
             ),
         );
+        const malformedResources = rawResources.length - resources.length;
         const badUris = resources
           .map((r) => r.uri)
           .filter((uri) => !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(uri) || hasPathTraversal(uri));
@@ -253,11 +263,13 @@ export async function runProtocolChecks(
           id: "protocol.resources-list",
           category: "protocol",
           title: "resources/list URI structure",
-          status: badUris.length === 0 ? "pass" : "fail",
+          status: malformedResources === 0 && badUris.length === 0 ? "pass" : "fail",
           summary:
-            badUris.length === 0
-              ? `Returned ${resources.length} resource(s) with valid URIs.`
-              : `Found ${badUris.length} malformed or path-traversal resource URI(s).`,
+            malformedResources > 0
+              ? `Returned ${malformedResources} malformed resource entry/entries missing uri or name.`
+              : badUris.length === 0
+                ? `Returned ${resources.length} resource(s) with valid URIs.`
+                : `Found ${badUris.length} malformed or path-traversal resource URI(s).`,
           details: badUris.slice(0, 5).map((u) => scrubText(u, 140)),
         });
       } else {

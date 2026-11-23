@@ -16,7 +16,9 @@ import type {
   ProviderId,
 } from "./types.js";
 
-export const TOOL_VERSION = "0.2.2";
+import { TOOL_VERSION } from "./version.js";
+
+export { TOOL_VERSION };
 
 function computeScoreAndGrade(checks: CheckResult[], connected: boolean): {
   score: number;

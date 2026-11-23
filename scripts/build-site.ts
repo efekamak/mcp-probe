@@ -46,7 +46,12 @@ await fs.writeFile(
   "utf8",
 );
 
+const SAFE_SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
 for (const entry of doc.entries) {
+  if (!SAFE_SLUG_REGEX.test(entry.id)) {
+    throw new Error(`Unsafe badge entry id: "${entry.id}"`);
+  }
   const badge = {
     schemaVersion: 1,
     label: entry.id,

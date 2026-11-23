@@ -69,86 +69,113 @@ const catalogRaw = JSON.parse(
 ) as CatalogFile;
 
 const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-probe-scorecard-"));
-const entries: ScorecardEntry[] = [];
+const resultsByIndex: Array<ScorecardEntry | undefined> = new Array(catalogRaw.servers.length);
 
-try {
-  for (const srv of catalogRaw.servers) {
-    if (dryRun) {
-      const display = srv.transport === "http" ? srv.url : [srv.command, ...srv.args].join(" ");
-      const dummyReport: AuditReport = {
-        schemaVersion: 1,
-        tool: "mcp-probe",
-        toolVersion: TOOL_VERSION,
-        timestamp: new Date().toISOString(),
-        durationMs: 0,
-        target: { transport: srv.transport, display },
-        server: { name: srv.id, version: "0.0.0", protocolVersion: "2025-03-26", capabilities: ["tools"] },
-        score: 100,
-        grade: "A",
-        status: "passed",
-        counts: { pass: 1, warn: 0, fail: 0, skip: 0 },
-        checks: [],
-        providers: {
-          openai: { provider: "openai", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
-          anthropic: { provider: "anthropic", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
-          gemini: { provider: "gemini", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
-          cursor: { provider: "cursor", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
-        },
-        context: {
-          toolCount: 0,
-          promptCount: 0,
-          resourceCount: 0,
-          totalBytes: 0,
-          estimatedTokens: 0,
-          missingDescriptions: 0,
-          missingAnnotations: 0,
-          heaviestTools: [],
-        },
-        safety: { passed: true, errors: 0, warnings: 0, findings: [] },
-        fatalError: null,
-      };
-      entries.push({
-        id: srv.id,
-        name: srv.name,
-        package: srv.package,
-        repositoryUrl: srv.repositoryUrl,
-        report: dummyReport,
-      });
-      continue;
-    }
-
-    let target: ProbeTarget;
-    if (srv.transport === "http") {
-      target = { transport: "http", url: srv.url };
-    } else {
-      const isolatedDir = path.join(tempRoot, srv.id);
-      await fs.mkdir(isolatedDir, { recursive: true });
-      target = {
-        transport: "stdio",
-        command: srv.command,
-        args: srv.args.map((a) => (a === "__TEMP_DIR__" ? isolatedDir : a)),
-        cwd: isolatedDir,
-      };
-    }
-
-    console.log(`Probing [${srv.transport}] ${srv.name} (${srv.package})...`);
-    const report = await probeMcpServer(target, { stepTimeoutMs: 30_000 });
-
-    console.log(
-      `  -> ${report.status.toUpperCase()} Grade ${report.grade} (${report.score}/100) | ${report.context.toolCount} tools (~${report.context.estimatedTokens} tokens)`,
-    );
-
-    entries.push({
+async function probeEntry(srv: CatalogServer): Promise<ScorecardEntry> {
+  if (dryRun) {
+    const display = srv.transport === "http" ? srv.url : [srv.command, ...srv.args].join(" ");
+    const dummyReport: AuditReport = {
+      schemaVersion: 1,
+      tool: "mcp-probe",
+      toolVersion: TOOL_VERSION,
+      timestamp: new Date().toISOString(),
+      durationMs: 0,
+      target: { transport: srv.transport, display },
+      server: { name: srv.id, version: "0.0.0", protocolVersion: "2025-03-26", capabilities: ["tools"] },
+      score: 100,
+      grade: "A",
+      status: "passed",
+      counts: { pass: 1, warn: 0, fail: 0, skip: 0 },
+      checks: [],
+      providers: {
+        openai: { provider: "openai", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+        anthropic: { provider: "anthropic", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+        gemini: { provider: "gemini", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+        cursor: { provider: "cursor", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+      },
+      context: {
+        toolCount: 0,
+        promptCount: 0,
+        resourceCount: 0,
+        totalBytes: 0,
+        estimatedTokens: 0,
+        missingDescriptions: 0,
+        missingAnnotations: 0,
+        heaviestTools: [],
+      },
+      safety: { passed: true, errors: 0, warnings: 0, findings: [] },
+      fatalError: null,
+    };
+    return {
       id: srv.id,
       name: srv.name,
       package: srv.package,
       repositoryUrl: srv.repositoryUrl,
-      report,
-    });
+      report: dummyReport,
+    };
+  }
+
+  let target: ProbeTarget;
+  if (srv.transport === "http") {
+    target = { transport: "http", url: srv.url };
+  } else {
+    const isolatedDir = path.join(tempRoot, srv.id);
+    await fs.mkdir(isolatedDir, { recursive: true });
+    target = {
+      transport: "stdio",
+      command: srv.command,
+      args: srv.args.map((a) => (a === "__TEMP_DIR__" ? isolatedDir : a)),
+      cwd: isolatedDir,
+    };
+  }
+
+  console.log(`Probing [${srv.transport}] ${srv.name} (${srv.package})...`);
+  const report = await probeMcpServer(target, { stepTimeoutMs: 30_000 });
+
+  console.log(
+    `  -> ${srv.name}: ${report.status.toUpperCase()} Grade ${report.grade} (${report.score}/100) | ${report.context.toolCount} tools (~${report.context.estimatedTokens} tokens)`,
+  );
+
+  return {
+    id: srv.id,
+    name: srv.name,
+    package: srv.package,
+    repositoryUrl: srv.repositoryUrl,
+    report,
+  };
+}
+
+try {
+  // Probe remote HTTP targets with bounded concurrency (4) while keeping stdio sequential
+  // to avoid npx cache contention.
+  const httpIndexed = catalogRaw.servers
+    .map((srv, idx) => ({ srv, idx }))
+    .filter((item) => item.srv.transport === "http");
+  const stdioIndexed = catalogRaw.servers
+    .map((srv, idx) => ({ srv, idx }))
+    .filter((item) => item.srv.transport === "stdio");
+
+  const HTTP_CONCURRENCY = 4;
+  let httpCursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(HTTP_CONCURRENCY, httpIndexed.length) }, async () => {
+      while (httpCursor < httpIndexed.length) {
+        const current = httpIndexed[httpCursor++];
+        resultsByIndex[current.idx] = await probeEntry(current.srv);
+      }
+    }),
+  );
+
+  for (const current of stdioIndexed) {
+    resultsByIndex[current.idx] = await probeEntry(current.srv);
   }
 } finally {
   await fs.rm(tempRoot, { recursive: true, force: true });
 }
+
+const entries: ScorecardEntry[] = resultsByIndex.filter(
+  (e): e is ScorecardEntry => e !== undefined,
+);
 
 const totalScore = entries.reduce((sum, e) => sum + e.report.score, 0);
 const doc: ScorecardDocument = {

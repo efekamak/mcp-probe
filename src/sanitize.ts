@@ -3,11 +3,20 @@ const ANSI_REGEX =
   /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 
 const SECRET_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
-  { pattern: /\b(sk-[A-Za-z0-9_-]{16,})\b/g, replacement: "[REDACTED_KEY]" },
+  {
+    pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g,
+    replacement: "[REDACTED_PRIVATE_KEY]",
+  },
+  { pattern: /\b(sk-(?:ant-|proj-)?[A-Za-z0-9_-]{16,})\b/g, replacement: "[REDACTED_KEY]" },
   { pattern: /\b(gh[pousr]_[A-Za-z0-9]{20,})\b/g, replacement: "[REDACTED_GH_TOKEN]" },
   { pattern: /\b(github_pat_[A-Za-z0-9_]{20,})\b/g, replacement: "[REDACTED_GH_TOKEN]" },
+  { pattern: /\b(npm_[A-Za-z0-9]{20,})\b/g, replacement: "[REDACTED_NPM_TOKEN]" },
   { pattern: /\b(AKIA[0-9A-Z]{16})\b/g, replacement: "[REDACTED_AWS_KEY]" },
   { pattern: /\b(xox[baprs]-[A-Za-z0-9-]{10,})\b/g, replacement: "[REDACTED_SLACK_TOKEN]" },
+  {
+    pattern: /\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g,
+    replacement: "[REDACTED_JWT]",
+  },
   { pattern: /(Bearer\s+)[A-Za-z0-9._~+/=-]{16,}/gi, replacement: "$1[REDACTED_TOKEN]" },
   { pattern: /(https?:\/\/[^:\s/@]+:)[^@\s/]+@/gi, replacement: "$1[REDACTED]@" },
   { pattern: /([?&](?:api_?key|token|access_?token|secret|auth|key)=)[^&\s"'`]+/gi, replacement: "$1[REDACTED]" },

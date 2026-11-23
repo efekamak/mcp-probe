@@ -31,6 +31,66 @@ function parseSseForJsonRpc(body: string, expectId: number | null): JsonRpcRespo
   return fallback;
 }
 
+async function readBoundedResponse(
+  res: Response,
+  isSse: boolean,
+  expectId: number | null,
+  maxBytes: number,
+): Promise<{ rawBody: string; sseParsed: JsonRpcResponse | null }> {
+  if (!res.body) {
+    return { rawBody: "", sseParsed: null };
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  let sseText = "";
+  const decoder = isSse ? new TextDecoder("utf-8") : null;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+
+      const remaining = maxBytes - totalBytes;
+      if (remaining <= 0) {
+        await reader.cancel().catch(() => {});
+        break;
+      }
+
+      const slice = value.byteLength > remaining ? value.subarray(0, remaining) : value;
+      chunks.push(slice);
+      totalBytes += slice.byteLength;
+
+      if (isSse && decoder) {
+        sseText += decoder.decode(slice, { stream: true });
+        // Inspect only completed SSE event blocks terminated by a blank line.
+        const boundaryMatch = sseText.match(/([\s\S]*\r?\n\r?\n)/);
+        if (boundaryMatch) {
+          const candidate = parseSseForJsonRpc(boundaryMatch[1], expectId);
+          if (candidate && (expectId === null || candidate.id === expectId)) {
+            await reader.cancel().catch(() => {});
+            return { rawBody: sseText, sseParsed: candidate };
+          }
+        }
+      }
+
+      if (totalBytes >= maxBytes) {
+        await reader.cancel().catch(() => {});
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const rawBody = isSse && decoder
+    ? sseText + decoder.decode()
+    : Buffer.concat(chunks, totalBytes).toString("utf8");
+  const sseParsed = isSse ? parseSseForJsonRpc(rawBody, expectId) : null;
+  return { rawBody, sseParsed };
+}
+
 export class HttpProbeTransport implements ProbeTransport {
   readonly kind = "http" as const;
   private readonly target: HttpTarget;
@@ -92,15 +152,17 @@ export class HttpProbeTransport implements ProbeTransport {
       }
 
       const contentType = res.headers.get("content-type") ?? "";
-      const rawBuf = Buffer.from(await res.arrayBuffer());
-      const rawBody =
-        rawBuf.byteLength > MAX_RESPONSE_BYTES
-          ? rawBuf.subarray(0, MAX_RESPONSE_BYTES).toString("utf8")
-          : rawBuf.toString("utf8");
+      const isSse = contentType.toLowerCase().includes("text/event-stream");
+      const { rawBody, sseParsed } = await readBoundedResponse(
+        res,
+        isSse,
+        expectId,
+        MAX_RESPONSE_BYTES,
+      );
 
       let parsed: JsonRpcResponse | null = null;
-      if (contentType.toLowerCase().includes("text/event-stream")) {
-        parsed = parseSseForJsonRpc(rawBody, expectId);
+      if (isSse) {
+        parsed = sseParsed;
       } else if (rawBody.trim().length > 0) {
         try {
           const json: unknown = JSON.parse(rawBody);

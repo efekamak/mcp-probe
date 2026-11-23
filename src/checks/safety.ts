@@ -131,12 +131,16 @@ export function runSafetyChecks(
     scanTextSurface(`resource:${resource.name}`, texts.join("\n"), findings);
   }
 
+  const seenErrorLeakRules = new Set<string>();
   for (const raw of rawErrorBodies) {
     const leaks = detectSecretOrPathLeak(raw);
     for (const leak of leaks) {
+      const rule = leak.includes("secret") ? "safety.error-secret-leak" : "safety.error-path-leak";
+      if (seenErrorLeakRules.has(rule)) continue;
+      seenErrorLeakRules.add(rule);
       findings.push({
         tool: null,
-        rule: leak.includes("secret") ? "safety.error-secret-leak" : "safety.error-path-leak",
+        rule,
         severity: leak.includes("secret") ? "fail" : "warn",
         message: `Server error response exposed a ${leak}.`,
         excerpt: scrubText(raw, 140),

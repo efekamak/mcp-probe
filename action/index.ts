@@ -52,6 +52,9 @@ function parseArgsInput(raw: string): string[] {
 }
 
 async function resolveWorkingDir(workspaceDir: string, workingDirInput: string): Promise<string> {
+  if (workspaceDir.includes("\0") || workingDirInput.includes("\0")) {
+    throw new Error("working-directory must not contain null bytes.");
+  }
   const trimmed = workingDirInput.trim();
   const cleaned =
     trimmed === "" || trimmed === "." || trimmed === "./" || trimmed === ".\\"
@@ -73,6 +76,10 @@ async function resolveWorkingDir(workspaceDir: string, workingDirInput: string):
   const realRel = path.relative(realBase, realTarget);
   if (realRel.startsWith("..") || path.isAbsolute(realRel)) {
     throw new Error("working-directory symlink escapes GITHUB_WORKSPACE.");
+  }
+  const targetStat = await fs.stat(realTarget);
+  if (!targetStat.isDirectory()) {
+    throw new Error("working-directory must point to an existing directory.");
   }
   return realTarget;
 }

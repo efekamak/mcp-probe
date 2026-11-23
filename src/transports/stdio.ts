@@ -7,6 +7,10 @@ import type { JsonRpcResponse, ProbeTransport, RawProbeResult } from "./types.js
 
 const MAX_STDERR_BYTES = 16_384;
 const MAX_STRAY_LINES = 50;
+const MAX_STDOUT_BUF_BYTES = 4 * 1024 * 1024;
+
+let cachedNodePathKey: string | null = null;
+let cachedNodePathPromise: Promise<string> | null = null;
 
 function absolutePathDirs(): string[] {
   const pathEnv = process.env.PATH ?? process.env.Path ?? "";
@@ -80,14 +84,22 @@ async function probeNodeVersion(nodePath: string): Promise<boolean> {
 }
 
 async function findPreferredNode(): Promise<string> {
-  const fileName = process.platform === "win32" ? "node.exe" : "node";
-  for (const dir of absolutePathDirs()) {
-    const candidate = path.join(dir, fileName);
-    if ((await isExecutableFile(candidate)) && (await probeNodeVersion(candidate))) {
-      return candidate;
-    }
+  const pathKey = process.env.PATH ?? process.env.Path ?? "";
+  if (cachedNodePathPromise && cachedNodePathKey === pathKey) {
+    return cachedNodePathPromise;
   }
-  return process.execPath;
+  cachedNodePathKey = pathKey;
+  cachedNodePathPromise = (async () => {
+    const fileName = process.platform === "win32" ? "node.exe" : "node";
+    for (const dir of absolutePathDirs()) {
+      const candidate = path.join(dir, fileName);
+      if ((await isExecutableFile(candidate)) && (await probeNodeVersion(candidate))) {
+        return candidate;
+      }
+    }
+    return process.execPath;
+  })();
+  return cachedNodePathPromise;
 }
 
 async function findNpmBinScript(
@@ -291,6 +303,7 @@ export class StdioProbeTransport implements ProbeTransport {
       this.child = child;
 
       const timer = setTimeout(() => {
+        killProcessTree(child.pid);
         done(new Error(`Timed out spawning stdio server after ${timeoutMs}ms.`));
       }, Math.min(timeoutMs, 15_000));
 
@@ -341,6 +354,15 @@ export class StdioProbeTransport implements ProbeTransport {
   private handleStdoutChunk(text: string): void {
     this.stdoutBuf += text;
     let newlineIdx = this.stdoutBuf.indexOf("\n");
+    if (newlineIdx === -1 && Buffer.byteLength(this.stdoutBuf, "utf8") > MAX_STDOUT_BUF_BYTES) {
+      if (this.strayStdoutLines.length < MAX_STRAY_LINES) {
+        this.strayStdoutLines.push(
+          `${this.stdoutBuf.slice(0, 260)}... [oversized unterminated stdout frame dropped]`,
+        );
+      }
+      this.stdoutBuf = "";
+      return;
+    }
     while (newlineIdx !== -1) {
       const rawLine = this.stdoutBuf.slice(0, newlineIdx).replace(/\r$/, "");
       this.stdoutBuf = this.stdoutBuf.slice(newlineIdx + 1);
