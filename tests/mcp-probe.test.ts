@@ -1,0 +1,290 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import * as fs from "node:fs/promises";
+import * as http from "node:http";
+import * as os from "node:os";
+import * as path from "node:path";
+import { describe, it } from "node:test";
+import { parseCliArgs } from "../src/cli.js";
+import { formatMarkdownSummary, formatTerminalReport } from "../src/format.js";
+import { probeMcpServer } from "../src/runner.js";
+
+const REPO_ROOT = process.cwd();
+const GOOD_STDIO = path.join(REPO_ROOT, "tests", "fixtures", "good-stdio-server.mjs");
+const BROKEN_STDIO = path.join(REPO_ROOT, "tests", "fixtures", "broken-stdio-server.mjs");
+
+async function startLocalHttpServer(
+  mode: "good-json" | "good-sse" | "broken-html",
+): Promise<{ url: string; close: () => Promise<void> }> {
+  const server = http.createServer((req, res) => {
+    if (req.method === "DELETE") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", () => {
+      const body = Buffer.concat(chunks).toString("utf8");
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(body) as Record<string, unknown>;
+      } catch {
+        if (mode === "broken-html") {
+          res.writeHead(400, { "content-type": "text/html" });
+          res.end("<!DOCTYPE html><pre>SyntaxError: Unexpected token in /Users/dev/app.js</pre>");
+          return;
+        }
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: null,
+            error: { code: -32700, message: "Parse error" },
+          }),
+        );
+        return;
+      }
+
+      if (msg.jsonrpc !== "2.0" || typeof msg.method !== "string") {
+        const code = mode === "broken-html" ? -32700 : -32600;
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: msg.id ?? null,
+            error: { code, message: "Invalid Request" },
+          }),
+        );
+        return;
+      }
+
+      if (msg.id === undefined) {
+        res.writeHead(202);
+        res.end();
+        return;
+      }
+
+      const respond = (payload: unknown) => {
+        if (mode === "good-sse") {
+          res.writeHead(200, {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "sess-123",
+          });
+          res.end(`event: message\ndata: ${JSON.stringify(payload)}\n\n`);
+          return;
+        }
+        res.writeHead(200, {
+          "content-type": "application/json",
+          "mcp-session-id": "sess-123",
+        });
+        res.end(JSON.stringify(payload));
+      };
+
+      if (msg.method === "initialize") {
+        respond({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: {
+            protocolVersion: "2025-03-26",
+            capabilities: { tools: {} },
+            serverInfo: { name: `http-${mode}`, version: "1.0.0" },
+          },
+        });
+        return;
+      }
+      if (msg.method === "ping") {
+        respond({ jsonrpc: "2.0", id: msg.id, result: {} });
+        return;
+      }
+      if (msg.method === "tools/list") {
+        respond({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: {
+            tools: [
+              {
+                name: "get_status",
+                description: "Get service status.",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    service: { type: "string", description: "Service name." },
+                  },
+                  required: ["service"],
+                },
+                annotations: { readOnlyHint: true },
+              },
+            ],
+          },
+        });
+        return;
+      }
+      if (msg.method === "tools/call") {
+        respond({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: { code: -32602, message: "Unknown tool" },
+        });
+        return;
+      }
+      respond({
+        jsonrpc: "2.0",
+        id: msg.id,
+        error: { code: -32601, message: "Method not found" },
+      });
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const addr = server.address();
+  if (!addr || typeof addr === "string") throw new Error("Failed to bind local server");
+  return {
+    url: `http://127.0.0.1:${addr.port}/mcp`,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
+describe("mcp-probe stdio audit", () => {
+  it("scores a clean compliant stdio server with Grade A and zero failures", async () => {
+    const report = await probeMcpServer({
+      transport: "stdio",
+      command: "node",
+      args: [GOOD_STDIO],
+    });
+
+    assert.equal(report.fatalError, null);
+    assert.equal(report.counts.fail, 0);
+    assert.equal(report.grade, "A");
+    assert.equal(report.server.name, "good-fixture-mcp");
+    assert.equal(report.context.toolCount, 1);
+    assert.equal(report.providers.openai.compatible, true);
+    assert.equal(report.providers.anthropic.compatible, true);
+    assert.equal(report.providers.gemini.compatible, true);
+    assert.equal(report.providers.cursor.compatible, true);
+    assert.equal(report.safety.passed, true);
+
+    const terminal = formatTerminalReport(report);
+    assert.match(terminal, /good-fixture-mcp@1\.0\.0/);
+    const md = formatMarkdownSummary(report);
+    assert.match(md, /<h3>mcp-probe:/);
+  });
+
+  it("catches stray stdout, wrong JSON-RPC code, schema failures, tool poisoning, and secret leaks", async () => {
+    const report = await probeMcpServer({
+      transport: "stdio",
+      command: "node",
+      args: [BROKEN_STDIO],
+    });
+
+    assert.equal(report.status, "failed");
+    assert.equal(report.safety.passed, false);
+
+    const byId = new Map(report.checks.map((c) => [c.id, c]));
+    assert.equal(byId.get("protocol.stdio-stdout-clean")?.status, "fail");
+    assert.equal(byId.get("protocol.invalid-jsonrpc")?.status, "fail");
+    assert.equal(byId.get("schema.compat-openai")?.status, "fail");
+    assert.equal(byId.get("schema.compat-gemini")?.status, "fail");
+    assert.equal(byId.get("safety.tool-poisoning")?.status, "fail");
+    assert.equal(byId.get("safety.error-hygiene")?.status, "fail");
+
+    // Ensure leaked secret is scrubbed in the serialized report
+    const serialized = JSON.stringify(report);
+    assert.doesNotMatch(serialized, /sk-fakeleak1234567890abcdef/);
+    assert.doesNotMatch(serialized, /\/Users\/devuser/);
+  });
+});
+
+describe("mcp-probe Streamable HTTP audit", () => {
+  it("audits JSON and SSE Streamable HTTP endpoints cleanly", async () => {
+    for (const mode of ["good-json", "good-sse"] as const) {
+      const srv = await startLocalHttpServer(mode);
+      try {
+        const report = await probeMcpServer({ transport: "http", url: srv.url });
+        assert.equal(report.fatalError, null);
+        assert.equal(report.counts.fail, 0);
+        assert.equal(report.grade, "A");
+        assert.equal(report.server.name, `http-${mode}`);
+      } finally {
+        await srv.close();
+      }
+    }
+  });
+
+  it("catches HTML stack trace leaks and -32700 instead of -32600 over HTTP", async () => {
+    const srv = await startLocalHttpServer("broken-html");
+    try {
+      const report = await probeMcpServer({ transport: "http", url: srv.url });
+      assert.equal(report.status, "failed");
+      const byId = new Map(report.checks.map((c) => [c.id, c]));
+      assert.equal(byId.get("protocol.malformed-json")?.status, "fail");
+      assert.equal(byId.get("protocol.invalid-jsonrpc")?.status, "fail");
+      assert.equal(byId.get("safety.error-hygiene")?.status, "warn");
+    } finally {
+      await srv.close();
+    }
+  });
+});
+
+describe("CLI parsing and bundled GitHub Action", () => {
+  it("parses stdio and http arguments cleanly", () => {
+    const stdio = parseCliArgs(["--stdio", "--json", "--strict", "--", "node", "server.js"]);
+    assert.equal(stdio.ok, true);
+    if (stdio.ok) {
+      assert.equal(stdio.value.target.transport, "stdio");
+      assert.equal(stdio.value.json, true);
+      assert.equal(stdio.value.strict, true);
+    }
+
+    const httpArg = parseCliArgs(["--http", "https://example.com/mcp", "--header", "X-Test: 1"]);
+    assert.equal(httpArg.ok, true);
+    if (httpArg.ok && httpArg.value.target.transport === "http") {
+      assert.equal(httpArg.value.target.url, "https://example.com/mcp");
+      assert.equal(httpArg.value.target.headers?.["X-Test"], "1");
+    }
+
+    const bad = parseCliArgs([]);
+    assert.equal(bad.ok, false);
+  });
+
+  it("executes the committed dist-action/index.js bundle end-to-end", async () => {
+    const bundlePath = path.join(REPO_ROOT, "dist-action", "index.js");
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-probe-act-"));
+    const outFile = path.join(tmpDir, "github-output.txt");
+    const sumFile = path.join(tmpDir, "github-summary.md");
+    await fs.writeFile(outFile, "", "utf8");
+    await fs.writeFile(sumFile, "", "utf8");
+
+    try {
+      const code = await new Promise<number | null>((resolve, reject) => {
+        const child = spawn(process.execPath, [bundlePath], {
+          cwd: REPO_ROOT,
+          env: {
+            ...process.env,
+            GITHUB_WORKSPACE: REPO_ROOT,
+            RUNNER_TEMP: tmpDir,
+            GITHUB_OUTPUT: outFile,
+            GITHUB_STEP_SUMMARY: sumFile,
+            INPUT_COMMAND: "node",
+            INPUT_ARGS: JSON.stringify(["tests/fixtures/good-stdio-server.mjs"]),
+            "INPUT_WORKING-DIRECTORY": ".",
+            "INPUT_TIMEOUT-MS": "10000",
+            "INPUT_FAIL-ON": "fail",
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        child.on("error", reject);
+        child.on("close", resolve);
+      });
+
+      assert.equal(code, 0);
+      const outputs = await fs.readFile(outFile, "utf8");
+      assert.match(outputs, /grade<<[\s\S]*?\r?\nA\r?\n/);
+      assert.match(outputs, /tool-count<<[\s\S]*?\r?\n1\r?\n/);
+      const summary = await fs.readFile(sumFile, "utf8");
+      assert.match(summary, /<h3>mcp-probe:/);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+});

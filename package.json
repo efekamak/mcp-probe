@@ -1,0 +1,48 @@
+{
+  "name": "mcp-probe",
+  "version": "0.1.0",
+  "description": "Deterministic conformance, cross-provider tool schema compatibility, context budget, and tool-poisoning audit CLI and GitHub Action for MCP servers.",
+  "type": "module",
+  "license": "MIT",
+  "author": "efekamak",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/efekamak/mcp-probe.git"
+  },
+  "homepage": "https://efekamak.github.io/mcp-probe/",
+  "bin": {
+    "mcp-probe": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "action:build": "ncc build action/index.ts -o dist-action --minify --license licenses.txt",
+    "action:verify": "node --check dist-action/index.js && node --import tsx scripts/verify-action-bundle.ts",
+    "scorecard:run": "node --import tsx scripts/run-scorecard.ts",
+    "site:build": "node --import tsx scripts/build-site.ts"
+  },
+  "dependencies": {
+    "@actions/core": "3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vercel/ncc": "0.45.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.2"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "servers": [
+    {
+      "id": "playwright-mcp",
+      "name": "Playwright MCP",
+      "package": "@playwright/mcp",
+      "repositoryUrl": "https://github.com/microsoft/playwright-mcp",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp"]
+    },
+    {
+      "id": "chrome-devtools-mcp",
+      "name": "Chrome DevTools MCP",
+      "package": "chrome-devtools-mcp",
+      "repositoryUrl": "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp"]
+    },
+    {
+      "id": "context7-mcp",
+      "name": "Context7 MCP",
+      "package": "@upstash/context7-mcp",
+      "repositoryUrl": "https://github.com/upstash/context7",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    },
+    {
+      "id": "mcp-server-filesystem",
+      "name": "MCP Filesystem Server",
+      "package": "@modelcontextprotocol/server-filesystem",
+      "repositoryUrl": "https://github.com/modelcontextprotocol/servers",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "__TEMP_DIR__"]
+    },
+    {
+      "id": "mcp-server-memory",
+      "name": "MCP Memory Server",
+      "package": "@modelcontextprotocol/server-memory",
+      "repositoryUrl": "https://github.com/modelcontextprotocol/servers",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    {
+      "id": "mcp-server-everything",
+      "name": "MCP Everything Server",
+      "package": "@modelcontextprotocol/server-everything",
+      "repositoryUrl": "https://github.com/modelcontextprotocol/servers",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-everything"]
+    },
+    {
+      "id": "mcp-server-sequential-thinking",
+      "name": "MCP Sequential Thinking",
+      "package": "@modelcontextprotocol/server-sequential-thinking",
+      "repositoryUrl": "https://github.com/modelcontextprotocol/servers",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    }
+  ]
+}

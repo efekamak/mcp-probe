@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Action integration (good stdio fixture, before npm ci)
+        id: probe_good
+        uses: ./
+        with:
+          command: node
+          args: '["tests/fixtures/good-stdio-server.mjs"]'
+
+      - name: Assert good fixture action outputs
+        shell: bash
+        env:
+          OUT_GRADE: ${{ steps.probe_good.outputs.grade }}
+          OUT_FAILED: ${{ steps.probe_good.outputs.failed-checks }}
+          OUT_RESULT_PATH: ${{ steps.probe_good.outputs.result-path }}
+        run: |
+          test "$OUT_GRADE" = "A"
+          test "$OUT_FAILED" = "0"
+          test -f "$OUT_RESULT_PATH"
+
+      - name: Action integration (broken stdio fixture must fail)
+        id: probe_broken
+        continue-on-error: true
+        uses: ./
+        with:
+          command: node
+          args: '["tests/fixtures/broken-stdio-server.mjs"]'
+
+      - name: Assert broken fixture action outputs
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.probe_broken.outcome }}
+          OUT_STATUS: ${{ steps.probe_broken.outputs.status }}
+          OUT_FAILED: ${{ steps.probe_broken.outputs.failed-checks }}
+        run: |
+          test "$OUTCOME" = "failure"
+          test "$OUT_STATUS" = "failed"
+          test "$OUT_FAILED" -gt 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+      - run: node --check site/app.js
+      - run: npm run action:verify
+      - name: Verify committed dist-action bundle is up to date (Ubuntu)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          npm run action:build
+          npm run action:verify
+          git diff --exit-code -- dist-action
+          test -z "$(git status --porcelain -- dist-action)"
+      - run: npm test
+      - name: Scorecard dry-run + static site build smoke
+        run: |
+          npm run scorecard:run -- --dry-run --out=generated/scorecard.json
+          npm run site:build

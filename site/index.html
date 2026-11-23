@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mcp-probe · MCP Server Conformance &amp; Compatibility Scorecard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div class="hero-top">
+          <div>
+            <h1 class="brand">mcp-probe <span class="slash">/</span> <span class="subtitle">live mcp scorecard</span></h1>
+            <p class="lead">
+              Deterministic daily audit of popular open-source MCP servers: JSON-RPC 2.0 conformance,
+              OpenAI / Anthropic / Gemini / Cursor tool schema compatibility, context token budget, and tool-poisoning scan.
+            </p>
+          </div>
+          <div class="meta-col" id="run-meta">Loading...</div>
+        </div>
+        <div class="summary-bar" id="summary-bar"></div>
+      </header>
+
+      <section class="controls">
+        <div class="filters" id="filters">
+          <button class="filter-btn is-active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="failed">Failed</button>
+          <button class="filter-btn" data-filter="warned">Warned</button>
+          <button class="filter-btn" data-filter="passed">Passed</button>
+        </div>
+        <a class="repo-link" href="https://github.com/efekamak/mcp-probe" target="_blank" rel="noreferrer">
+          Source &amp; GitHub Action ↗
+        </a>
+      </section>
+
+      <section id="cards" class="cards"></section>
+
+      <footer class="foot">
+        <p>
+          Audits run daily on ephemeral GitHub-hosted Ubuntu runners with zero API keys and zero LLM calls.
+          Token counts are deterministic UTF-8 estimates (<code>ceil(bytes / 4)</code>) of serialized <code>tools/list</code> output.
+        </p>
+        <p class="foot-links">
+          <a href="https://github.com/efekamak/mcp-probe" target="_blank" rel="noreferrer">GitHub Repo</a>
+          ·
+          <a href="./scorecard.json" target="_blank" rel="noreferrer">Raw scorecard.json</a>
+        </p>
+      </footer>
+    </main>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

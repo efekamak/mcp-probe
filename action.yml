@@ -1,0 +1,49 @@
+name: "MCP Probe Audit"
+description: "Audit an MCP server (stdio or Streamable HTTP) for JSON-RPC conformance, OpenAI/Anthropic/Gemini/Cursor tool schema compatibility, token budget, and tool-poisoning safety."
+author: "efekamak"
+branding:
+  icon: "shield"
+  color: "blue"
+inputs:
+  command:
+    description: "Executable for stdio transport (for example node, npx, or python). Required unless http-url is set."
+    required: false
+    default: ""
+  args:
+    description: "JSON array or whitespace-separated arguments for stdio command."
+    required: false
+    default: ""
+  http-url:
+    description: "Streamable HTTP MCP endpoint URL. Required unless command is set."
+    required: false
+    default: ""
+  working-directory:
+    description: "Relative working directory inside GITHUB_WORKSPACE for stdio servers."
+    required: false
+    default: "."
+  timeout-ms:
+    description: "Per-step timeout in milliseconds (500 to 120000)."
+    required: false
+    default: "15000"
+  fail-on:
+    description: "Failure threshold: fail (default), warn, or none."
+    required: false
+    default: "fail"
+outputs:
+  status:
+    description: "Audit outcome: passed, warned, failed, or error."
+  score:
+    description: "Numeric score from 0 to 100."
+  grade:
+    description: "Letter grade from A to F."
+  tool-count:
+    description: "Number of tools exposed by tools/list."
+  estimated-tokens:
+    description: "Estimated context tokens consumed by tools/list."
+  failed-checks:
+    description: "Number of failed checks."
+  result-path:
+    description: "Path under RUNNER_TEMP to the JSON audit report."
+runs:
+  using: "node24"
+  main: "dist-action/index.js"
