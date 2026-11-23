@@ -65,6 +65,9 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--") {
+      if (mode === "http") {
+        return { ok: false, exitCode: 2, message: "Cannot combine --http with -- <stdio command>." };
+      }
       stdioCmd = argv.slice(i + 1);
       if (mode === null) mode = "stdio";
       break;
@@ -76,10 +79,16 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
       return { ok: false, exitCode: 0, message: `VERSION:${TOOL_VERSION}` };
     }
     if (arg === "--stdio") {
+      if (mode === "http") {
+        return { ok: false, exitCode: 2, message: "Cannot combine --stdio and --http." };
+      }
       mode = "stdio";
       continue;
     }
     if (arg === "--http") {
+      if (mode === "stdio") {
+        return { ok: false, exitCode: 2, message: "Cannot combine --stdio and --http." };
+      }
       mode = "http";
       httpUrl = argv[++i] ?? null;
       continue;

@@ -349,6 +349,35 @@ describe("CLI parsing and bundled GitHub Action", () => {
     assert.equal(parseCliArgs(["--cwd"]).ok, false);
     assert.equal(parseCliArgs(["--out"]).ok, false);
     assert.equal(parseCliArgs(["--sarif-out", "--", "node", "x.js"]).ok, false);
+    assert.equal(parseCliArgs(["--stdio", "--http", "https://example.com/mcp", "--", "node", "x.js"]).ok, false);
+    assert.equal(parseCliArgs(["--http", "https://example.com/mcp", "--", "node", "x.js"]).ok, false);
+
+    const encodedSarif = toSarifReport({
+      schemaVersion: 1,
+      tool: "mcp-probe",
+      toolVersion: TOOL_VERSION,
+      timestamp: new Date().toISOString(),
+      durationMs: 1,
+      target: { transport: "stdio", display: "node server.js" },
+      server: { name: "My Server (v1)", version: "1.0", protocolVersion: "2025-03-26", capabilities: [] },
+      score: 50,
+      grade: "D",
+      status: "failed",
+      counts: { pass: 0, warn: 0, fail: 1, skip: 0 },
+      checks: [{ id: "protocol.test", category: "protocol", title: "t", status: "fail", summary: "s" }],
+      providers: {
+        openai: { provider: "openai", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+        anthropic: { provider: "anthropic", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+        gemini: { provider: "gemini", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+        cursor: { provider: "cursor", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+      },
+      context: { toolCount: 0, promptCount: 0, resourceCount: 0, totalBytes: 0, estimatedTokens: 0, missingDescriptions: 0, missingAnnotations: 0, heaviestTools: [] },
+      safety: { passed: true, errors: 0, warnings: 0, findings: [] },
+      fatalError: null,
+    });
+    const sarifUri = encodedSarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri;
+    assert.equal(sarifUri, "mcp://My%20Server%20(v1)");
+    assert.doesNotMatch(sarifUri, /\s/);
   });
 
   it("executes the committed dist-action/index.js bundle end-to-end", async () => {

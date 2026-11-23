@@ -29,15 +29,29 @@ export type SarifLog = {
   }>;
 };
 
+function toSafeArtifactUri(report: AuditReport): string {
+  if (report.server.name) {
+    return `mcp://${encodeURIComponent(report.server.name)}`;
+  }
+  if (report.target.transport === "http") {
+    try {
+      return new URL(report.target.display).href;
+    } catch {
+      return "mcp://server";
+    }
+  }
+  return report.target.display
+    ? `mcp://${encodeURIComponent(report.target.display.slice(0, 120))}`
+    : "mcp://server";
+}
+
 export function toSarifReport(report: AuditReport): SarifLog {
   const rulesMap = new Map<
     string,
     { id: string; shortDescription: { text: string }; defaultConfiguration: { level: "error" | "warning" | "note" } }
   >();
   const results: SarifLog["runs"][0]["results"] = [];
-  const artifactUri = report.server.name
-    ? `mcp://${report.server.name}`
-    : report.target.display || "mcp://server";
+  const artifactUri = toSafeArtifactUri(report);
 
   for (const check of report.checks) {
     if (check.status !== "fail" && check.status !== "warn") continue;

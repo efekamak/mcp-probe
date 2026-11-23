@@ -1,6 +1,6 @@
 {
   "name": "mcp-probe",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Deterministic conformance, cross-provider tool schema compatibility, context budget, and tool-poisoning audit CLI and GitHub Action for MCP servers.",
   "type": "module",
   "license": "MIT",
