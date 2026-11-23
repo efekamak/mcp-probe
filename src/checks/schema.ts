@@ -71,6 +71,16 @@ function walkSchema(
       walkSchema(child, `${currentPath}.$defs.${defName}`, depth + 1, visitor);
     }
   }
+  if (obj.definitions && typeof obj.definitions === "object" && !Array.isArray(obj.definitions)) {
+    for (const [defName, child] of Object.entries(obj.definitions as Record<string, unknown>)) {
+      walkSchema(child, `${currentPath}.definitions.${defName}`, depth + 1, visitor);
+    }
+  }
+  if (Array.isArray(obj.prefixItems)) {
+    obj.prefixItems.forEach((child, i) =>
+      walkSchema(child, `${currentPath}.prefixItems[${i}]`, depth + 1, visitor),
+    );
+  }
 }
 
 function checkToolForProvider(tool: McpTool, provider: ProviderId): ProviderIssue[] {

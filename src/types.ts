@@ -139,7 +139,6 @@ export type AuditReport = {
   providers: Record<ProviderId, ProviderCompatibility>;
   context: ContextBudgetSummary;
   safety: SafetySummary;
-  rawErrorExcerpts?: string[];
   fatalError: string | null;
 };
 

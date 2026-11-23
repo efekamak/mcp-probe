@@ -116,14 +116,14 @@ export async function runProtocolChecks(
     server.name = typeof info.name === "string" ? info.name : null;
     server.version = typeof info.version === "string" ? info.version : null;
   }
-  if (initObj.capabilities && typeof initObj.capabilities === "object") {
+  if (initObj.capabilities && typeof initObj.capabilities === "object" && !Array.isArray(initObj.capabilities)) {
     server.capabilities = Object.keys(initObj.capabilities as Record<string, unknown>).sort();
   }
 
   const initMissing: string[] = [];
   if (!server.protocolVersion) initMissing.push("protocolVersion");
   if (!server.name) initMissing.push("serverInfo.name");
-  if (!initObj.capabilities || typeof initObj.capabilities !== "object") {
+  if (!initObj.capabilities || typeof initObj.capabilities !== "object" || Array.isArray(initObj.capabilities)) {
     initMissing.push("capabilities");
   }
 
@@ -139,7 +139,7 @@ export async function runProtocolChecks(
   });
 
   try {
-    await transport.notify("notifications/initialized");
+    await transport.notify("notifications/initialized", undefined, Math.min(stepTimeoutMs, 5_000));
   } catch {
     // Handled by subsequent probes.
   }

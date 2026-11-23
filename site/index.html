@@ -3,6 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';"
+    />
     <title>mcp-probe · MCP Server Conformance &amp; Compatibility Scorecard</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -24,12 +28,12 @@
 
       <section class="controls">
         <div class="filters" id="filters">
-          <button class="filter-btn is-active" data-filter="all">All</button>
-          <button class="filter-btn" data-filter="failed">Failed</button>
-          <button class="filter-btn" data-filter="warned">Warned</button>
-          <button class="filter-btn" data-filter="passed">Passed</button>
+          <button type="button" class="filter-btn is-active" data-filter="all">All</button>
+          <button type="button" class="filter-btn" data-filter="failed">Failed</button>
+          <button type="button" class="filter-btn" data-filter="warned">Warned</button>
+          <button type="button" class="filter-btn" data-filter="passed">Passed</button>
         </div>
-        <a class="repo-link" href="https://github.com/efekamak/mcp-probe" target="_blank" rel="noreferrer">
+        <a class="repo-link" href="https://github.com/efekamak/mcp-probe" target="_blank" rel="noopener noreferrer">
           Source &amp; GitHub Action ↗
         </a>
       </section>
@@ -42,9 +46,9 @@
           Token counts are deterministic UTF-8 estimates (<code>ceil(bytes / 4)</code>) of serialized <code>tools/list</code> output.
         </p>
         <p class="foot-links">
-          <a href="https://github.com/efekamak/mcp-probe" target="_blank" rel="noreferrer">GitHub Repo</a>
+          <a href="https://github.com/efekamak/mcp-probe" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
           ·
-          <a href="./scorecard.json" target="_blank" rel="noreferrer">Raw scorecard.json</a>
+          <a href="./scorecard.json" target="_blank" rel="noopener noreferrer">Raw scorecard.json</a>
         </p>
       </footer>
     </main>

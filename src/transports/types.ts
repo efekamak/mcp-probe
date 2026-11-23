@@ -27,7 +27,7 @@ export interface ProbeTransport {
     params: Record<string, unknown> | undefined,
     timeoutMs: number,
   ): Promise<RawProbeResult>;
-  notify(method: string, params?: Record<string, unknown>): Promise<void>;
+  notify(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<void>;
   sendRawJson(payload: unknown, expectId: number | null, timeoutMs: number): Promise<RawProbeResult>;
   sendRawText(raw: string, timeoutMs: number): Promise<RawProbeResult>;
   getStrayStdoutLines(): string[];

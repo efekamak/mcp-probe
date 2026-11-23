@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { describe, it } from "node:test";
 import { parseCliArgs } from "../src/cli.js";
 import { runSafetyChecks } from "../src/checks/safety.js";
+import { runSchemaChecks } from "../src/checks/schema.js";
 import { formatMarkdownSummary, formatTerminalReport } from "../src/format.js";
 import { probeMcpServer, TOOL_VERSION } from "../src/runner.js";
 import { scrubText } from "../src/sanitize.js";
@@ -363,6 +364,22 @@ describe("CLI parsing and bundled GitHub Action", () => {
     );
     assert.equal(safetyRes.safety.passed, true);
     assert.ok(Date.now() - redosStart < 100, `Expected linear safety scan, took ${Date.now() - redosStart}ms`);
+
+    // Verify walkSchema descends into definitions and prefixItems.
+    const nestedSchema = runSchemaChecks([
+      {
+        name: "nested_tool",
+        description: "Test nested schema walk.",
+        inputSchema: {
+          type: "object",
+          definitions: { badArr: { type: "array" } },
+          properties: { tuple: { type: "array", prefixItems: [{ type: ["string", "null"] }] } },
+        },
+      },
+    ]);
+    assert.equal(nestedSchema.providers.openai.compatible, false);
+    assert.equal(nestedSchema.providers.gemini.compatible, false);
+    assert.ok(nestedSchema.providers.gemini.issues.some((i) => i.rule === "gemini.union-type-array"));
 
     const encodedSarif = toSarifReport({
       schemaVersion: 1,

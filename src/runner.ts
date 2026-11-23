@@ -72,7 +72,7 @@ export async function probeMcpServer(
 ): Promise<AuditReport> {
   const startedMs = Date.now();
   const timestamp = new Date(startedMs).toISOString();
-  const stepTimeoutMs = options.stepTimeoutMs ?? 15_000;
+  const stepTimeoutMs = options.stepTimeoutMs ?? options.timeoutMs ?? 15_000;
 
   const transport: ProbeTransport =
     target.transport === "http"

@@ -31,6 +31,15 @@ function parseSseForJsonRpc(body: string, expectId: number | null): JsonRpcRespo
   return fallback;
 }
 
+function findLastSseBoundaryEnd(text: string): number {
+  const lf = text.lastIndexOf("\n\n");
+  const crlf = text.lastIndexOf("\r\n\r\n");
+  if (lf === -1 && crlf === -1) return -1;
+  const lfEnd = lf === -1 ? -1 : lf + 2;
+  const crlfEnd = crlf === -1 ? -1 : crlf + 4;
+  return Math.max(lfEnd, crlfEnd);
+}
+
 async function readBoundedResponse(
   res: Response,
   isSse: boolean,
@@ -64,10 +73,10 @@ async function readBoundedResponse(
 
       if (isSse && decoder) {
         sseText += decoder.decode(slice, { stream: true });
-        // Inspect only completed SSE event blocks terminated by a blank line.
-        const boundaryMatch = sseText.match(/([\s\S]*\r?\n\r?\n)/);
-        if (boundaryMatch) {
-          const candidate = parseSseForJsonRpc(boundaryMatch[1], expectId);
+        // Inspect only completed SSE event blocks terminated by a blank line (linear O(N) scan).
+        const boundaryEnd = findLastSseBoundaryEnd(sseText);
+        if (boundaryEnd !== -1) {
+          const candidate = parseSseForJsonRpc(sseText.slice(0, boundaryEnd), expectId);
           if (candidate && (expectId === null || candidate.id === expectId)) {
             await reader.cancel().catch(() => {});
             return { rawBody: sseText, sseParsed: candidate };
@@ -115,17 +124,21 @@ export class HttpProbeTransport implements ProbeTransport {
     }
   }
 
-  private buildHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
+  private buildHeaders(): Headers {
+    const headers = new Headers({
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
-      ...(this.target.headers ?? {}),
-    };
+    });
+    if (this.target.headers) {
+      for (const [key, value] of Object.entries(this.target.headers)) {
+        headers.set(key, value);
+      }
+    }
     if (this.sessionId) {
-      headers["mcp-session-id"] = this.sessionId;
+      headers.set("mcp-session-id", this.sessionId);
     }
     if (this.protocolVersion) {
-      headers["mcp-protocol-version"] = this.protocolVersion;
+      headers.set("mcp-protocol-version", this.protocolVersion);
     }
     return headers;
   }
@@ -232,7 +245,11 @@ export class HttpProbeTransport implements ProbeTransport {
     return this.postBody(JSON.stringify(payload), id, timeoutMs);
   }
 
-  async notify(method: string, params?: Record<string, unknown>): Promise<void> {
+  async notify(
+    method: string,
+    params?: Record<string, unknown>,
+    timeoutMs: number = 5000,
+  ): Promise<void> {
     const payload: Record<string, unknown> = {
       jsonrpc: "2.0",
       method,
@@ -240,7 +257,7 @@ export class HttpProbeTransport implements ProbeTransport {
     if (params !== undefined) {
       payload.params = params;
     }
-    await this.postBody(JSON.stringify(payload), null, 5000);
+    await this.postBody(JSON.stringify(payload), null, timeoutMs);
   }
 
   async sendRawJson(
@@ -272,11 +289,12 @@ export class HttpProbeTransport implements ProbeTransport {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 3000);
-      await fetch(this.target.url, {
+      const res = await fetch(this.target.url, {
         method: "DELETE",
         headers: this.buildHeaders(),
         signal: controller.signal,
       }).finally(() => clearTimeout(timer));
+      await res.body?.cancel().catch(() => {});
     } catch {
       // Best-effort session teardown.
     }
