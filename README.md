@@ -20,7 +20,7 @@ Connects directly to any MCP server over **stdio** or **Streamable HTTP** (`appl
 2. **Cross-provider tool schema compatibility**
    - **OpenAI:** tool name regex `^[a-zA-Z0-9_-]{1,64}$`, root `type: "object"`, array `items`, non-empty `enum`, strict-mode readiness (`additionalProperties: false`)
    - **Anthropic (Claude):** tool name regex `^[a-zA-Z0-9_-]{1,128}$`, root `type: "object"`, descriptions
-   - **Google Gemini:** tool name regex, union `type` arrays, unsupported keywords (`$ref`, `$defs`, `oneOf`, `allOf`, `not`, `const`, `patternProperties`, `exclusiveMinimum`/`exclusiveMaximum`), plus warnings for OpenAPI `parameters` keywords (`$schema`, `additionalProperties`, `default`, nested `anyOf`)
+   - **Google Gemini:** tool name regex, union `type` arrays, unsupported keywords (`$ref`, `$defs`, `oneOf`, `allOf`, `not`, `const`, `patternProperties`, `exclusiveMinimum`/`exclusiveMaximum`), plus warnings for OpenAPI `parameters` keywords (`$schema`, `additionalProperties`, nested `anyOf`)
    - **Cursor:** tool name limits, 40-tool active budget warning, MCP safety annotations (`readOnlyHint`, `destructiveHint`)
 3. **Context & token budget**
    - Serialized UTF-8 byte size and estimated token cost (`ceil(bytes / 4)`) of `tools/list` injected on every model turn, heaviest tools breakdown, missing or oversized descriptions, and missing MCP annotations

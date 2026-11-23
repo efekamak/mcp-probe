@@ -86,10 +86,10 @@ async function resolveWorkingDir(workspaceDir: string, workingDirInput: string):
 
 async function writeArtifactFile(runnerTemp: string, ext: "json" | "sarif", text: string): Promise<string> {
   const dir = path.join(path.resolve(runnerTemp), "mcp-probe");
-  await fs.mkdir(dir, { recursive: true });
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   const stat = await fs.lstat(dir);
-  if (stat.isSymbolicLink()) {
-    throw new Error("Refusing to write into symlinked RUNNER_TEMP/mcp-probe directory.");
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error("Refusing to write into non-directory or symlinked RUNNER_TEMP/mcp-probe path.");
   }
   const filePath = path.join(dir, `${crypto.randomUUID()}.${ext}`);
   await fs.writeFile(filePath, text, { encoding: "utf8", flag: "wx", mode: 0o600 });

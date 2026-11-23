@@ -21,7 +21,8 @@ const GEMINI_FAIL_KEYWORDS = [
   "unevaluatedProperties",
 ] as const;
 
-const GEMINI_WARN_KEYWORDS = ["$schema", "additionalProperties", "default"] as const;
+// Note: `default` is officially supported by Gemini's Schema protobuf (field 25) and Vertex AI.
+const GEMINI_WARN_KEYWORDS = ["$schema", "additionalProperties"] as const;
 
 const OPENAI_UNSUPPORTED_KEYWORDS = [
   "oneOf",

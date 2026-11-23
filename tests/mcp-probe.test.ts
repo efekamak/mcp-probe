@@ -299,6 +299,31 @@ describe("mcp-probe Streamable HTTP audit", () => {
       await srv.close();
     }
   });
+
+  it("bounds oversized HTTP responses (> 2 MiB) during streaming without OOM", async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      // Stream 3 MiB of invalid padding to verify the 2 MiB streaming cap cancels early.
+      const chunk = Buffer.alloc(64 * 1024, "x");
+      for (let i = 0; i < 48; i += 1) {
+        if (!res.write(chunk)) break;
+      }
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("Failed to bind server");
+    try {
+      const report = await probeMcpServer(
+        { transport: "http", url: `http://127.0.0.1:${addr.port}/mcp` },
+        { stepTimeoutMs: 5_000 },
+      );
+      assert.equal(report.status, "error");
+      assert.ok(report.fatalError !== null);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 });
 
 describe("CLI parsing and bundled GitHub Action", () => {
@@ -390,6 +415,45 @@ describe("CLI parsing and bundled GitHub Action", () => {
     assert.equal(report.status, "failed");
     const byId = new Map(report.checks.map((c) => [c.id, c]));
     assert.equal(byId.get("protocol.alive-after-probes")?.status, "fail");
+  });
+
+  it("drops oversized unterminated stdio stdout (> 4 MiB) and accepts Gemini Schema default without false warning", async () => {
+    const script = [
+      "import * as readline from 'node:readline';",
+      "const rl = readline.createInterface({ input: process.stdin });",
+      "rl.on('line', (line) => {",
+      "  let m; try { m = JSON.parse(line); } catch {",
+      "    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }) + '\\n');",
+      "    return;",
+      "  }",
+      "  if (!m || typeof m !== 'object' || typeof m.method !== 'string') {",
+      "    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m?.id ?? null, error: { code: -32600, message: 'Invalid Request' } }) + '\\n');",
+      "    return;",
+      "  }",
+      "  if (m.id === undefined) return;",
+      "  if (m.method === 'initialize') {",
+      "    process.stdout.write('A'.repeat(4_300_000));",
+      "    process.stdout.write('\\n' + JSON.stringify({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'stress', version: '1.0.0' } } }) + '\\n');",
+      "  } else if (m.method === 'tools/list') {",
+      "    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result: { tools: [{ name: 't1', description: 'Tool with default.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, default: 10 } } }, annotations: { readOnlyHint: true } }] } }) + '\\n');",
+      "  } else if (m.method === 'ping') {",
+      "    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result: {} }) + '\\n');",
+      "  } else if (m.method === 'tools/call') {",
+      "    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, error: { code: -32602, message: 'Unknown tool' } }) + '\\n');",
+      "  } else {",
+      "    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'Method not found' } }) + '\\n');",
+      "  }",
+      "});",
+    ].join("\n");
+
+    const report = await probeMcpServer(
+      { transport: "stdio", command: "node", args: ["--input-type=module", "-e", script] },
+      { stepTimeoutMs: 5_000 },
+    );
+    const byId = new Map(report.checks.map((c) => [c.id, c]));
+    assert.equal(byId.get("protocol.stdio-stdout-clean")?.status, "fail");
+    assert.equal(report.providers.gemini.compatible, true);
+    assert.equal(report.providers.gemini.warnings, 0);
   });
 
   it("scrubs URL query-string, JWT, npm, and private-key secrets and runs built CLI --version cleanly", async () => {
