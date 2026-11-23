@@ -1,5 +1,5 @@
 name: "MCP Probe Audit"
-description: "Audit an MCP server (stdio or Streamable HTTP) for JSON-RPC conformance, OpenAI/Anthropic/Gemini/Cursor tool schema compatibility, token budget, and tool-poisoning safety."
+description: "Audit an MCP server for JSON-RPC conformance, OpenAI/Anthropic/Gemini schema compatibility, tokens, and safety."
 author: "efekamak"
 branding:
   icon: "shield"
