@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatMarkdownSummary, formatTerminalReport } from "./format.js";
 import { probeMcpServer, TOOL_VERSION } from "./runner.js";
+import { scrubText } from "./sanitize.js";
 import { toSarifReport } from "./sarif.js";
 import type { GeminiSchemaMode, ProbeTarget, TokenizerMode } from "./types.js";
 
@@ -95,8 +96,12 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
       if (mode === "stdio") {
         return { ok: false, exitCode: 2, message: "Cannot combine --stdio and --http." };
       }
+      const next = argv[++i];
+      if (!next || next === "--" || next.startsWith("-")) {
+        return { ok: false, exitCode: 2, message: "--http requires a URL." };
+      }
       mode = "http";
-      httpUrl = argv[++i] ?? null;
+      httpUrl = next;
       continue;
     }
     if (arg === "--json") {
@@ -187,6 +192,14 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
       continue;
     }
     return { ok: false, exitCode: 2, message: `Unknown argument: ${arg}` };
+  }
+
+  if ([json, markdown, sarif].filter(Boolean).length > 1) {
+    return {
+      ok: false,
+      exitCode: 2,
+      message: "Specify at most one stdout format flag (--json, --markdown, or --sarif).",
+    };
   }
 
   if (mode === "http") {
@@ -318,5 +331,9 @@ function isDirectCliExecution(): boolean {
 }
 
 if (isDirectCliExecution()) {
-  void main();
+  main().catch((err) => {
+    const msg = scrubText(err instanceof Error ? err.message : String(err), 300);
+    process.stderr.write(`error: ${msg}\n`);
+    process.exitCode = 2;
+  });
 }

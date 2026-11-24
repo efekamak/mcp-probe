@@ -40,21 +40,53 @@ const WARN_SHADOWING_PATTERNS: Array<{ rule: string; regex: RegExp; label: strin
   },
 ];
 
+const MAX_SCHEMA_TEXT_ITEMS = 2_000;
+
 function collectSchemaTextFields(node: unknown, depth: number, out: string[]): void {
-  if (!node || typeof node !== "object" || depth > 12) return;
+  if (!node || typeof node !== "object" || depth > 12 || out.length >= MAX_SCHEMA_TEXT_ITEMS) return;
   if (Array.isArray(node)) {
-    for (const item of node) collectSchemaTextFields(item, depth + 1, out);
+    for (const item of node) {
+      if (out.length >= MAX_SCHEMA_TEXT_ITEMS) break;
+      collectSchemaTextFields(item, depth + 1, out);
+    }
     return;
   }
   const obj = node as Record<string, unknown>;
-  if (typeof obj.description === "string" && obj.description.length > 0) {
-    out.push(obj.description);
+  for (const strKey of ["description", "title", "default", "const"] as const) {
+    const val = obj[strKey];
+    if (typeof val === "string" && val.length > 0 && out.length < MAX_SCHEMA_TEXT_ITEMS) {
+      out.push(val);
+    }
   }
-  if (typeof obj.title === "string" && obj.title.length > 0) {
-    out.push(obj.title);
+  for (const listKey of ["examples", "enum"] as const) {
+    const list = obj[listKey];
+    if (Array.isArray(list)) {
+      for (const item of list) {
+        if (out.length >= MAX_SCHEMA_TEXT_ITEMS) break;
+        if (typeof item === "string" && item.length > 0) {
+          out.push(item);
+        }
+      }
+    }
+  }
+  if (obj.properties && typeof obj.properties === "object" && !Array.isArray(obj.properties)) {
+    for (const propName of Object.keys(obj.properties as Record<string, unknown>)) {
+      if (out.length >= MAX_SCHEMA_TEXT_ITEMS) break;
+      if (propName.length > 0) out.push(propName);
+    }
   }
   for (const [k, v] of Object.entries(obj)) {
-    if (k !== "description" && k !== "title" && typeof v === "object" && v !== null) {
+    if (out.length >= MAX_SCHEMA_TEXT_ITEMS) break;
+    if (
+      k !== "description" &&
+      k !== "title" &&
+      k !== "default" &&
+      k !== "const" &&
+      k !== "examples" &&
+      k !== "enum" &&
+      typeof v === "object" &&
+      v !== null
+    ) {
       collectSchemaTextFields(v, depth + 1, out);
     }
   }

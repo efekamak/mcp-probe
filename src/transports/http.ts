@@ -53,6 +53,8 @@ async function readBoundedResponse(
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
   let sseText = "";
+  let sseParseOffset = 0;
+  let sseFallback: JsonRpcResponse | null = null;
   const decoder = isSse ? new TextDecoder("utf-8") : null;
 
   try {
@@ -73,13 +75,17 @@ async function readBoundedResponse(
 
       if (isSse && decoder) {
         sseText += decoder.decode(slice, { stream: true });
-        // Inspect only completed SSE event blocks terminated by a blank line (linear O(N) scan).
+        // Inspect only newly completed SSE event blocks since sseParseOffset (linear O(N) total).
         const boundaryEnd = findLastSseBoundaryEnd(sseText);
-        if (boundaryEnd !== -1) {
-          const candidate = parseSseForJsonRpc(sseText.slice(0, boundaryEnd), expectId);
-          if (candidate && (expectId === null || candidate.id === expectId)) {
-            await reader.cancel().catch(() => {});
-            return { rawBody: sseText, sseParsed: candidate };
+        if (boundaryEnd > sseParseOffset) {
+          const candidate = parseSseForJsonRpc(sseText.slice(sseParseOffset, boundaryEnd), expectId);
+          sseParseOffset = boundaryEnd;
+          if (candidate) {
+            if (expectId === null || candidate.id === expectId) {
+              await reader.cancel().catch(() => {});
+              return { rawBody: sseText, sseParsed: candidate };
+            }
+            sseFallback = candidate;
           }
         }
       }
@@ -96,7 +102,18 @@ async function readBoundedResponse(
   const rawBody = isSse && decoder
     ? sseText + decoder.decode()
     : Buffer.concat(chunks, totalBytes).toString("utf8");
-  const sseParsed = isSse ? parseSseForJsonRpc(rawBody, expectId) : null;
+  let sseParsed: JsonRpcResponse | null = null;
+  if (isSse) {
+    const tailCandidate =
+      sseParseOffset < rawBody.length
+        ? parseSseForJsonRpc(rawBody.slice(sseParseOffset), expectId)
+        : null;
+    if (tailCandidate && (expectId === null || tailCandidate.id === expectId)) {
+      sseParsed = tailCandidate;
+    } else {
+      sseParsed = tailCandidate ?? sseFallback;
+    }
+  }
   return { rawBody, sseParsed };
 }
 

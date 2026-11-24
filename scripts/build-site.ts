@@ -29,6 +29,15 @@ for (const file of ["index.html", "styles.css", "app.js"]) {
   await fs.copyFile(path.join(siteSrcDir, file), path.join(distSiteDir, file));
 }
 
+const MAX_SCORECARD_BYTES = 10 * 1024 * 1024;
+const scorecardStat = await fs.lstat(scorecardSrc);
+if (scorecardStat.isSymbolicLink() || !scorecardStat.isFile()) {
+  throw new Error("scorecard.json must be a regular file (symlinks are not allowed).");
+}
+if (scorecardStat.size > MAX_SCORECARD_BYTES) {
+  throw new Error(`scorecard.json exceeds ${MAX_SCORECARD_BYTES}-byte limit (${scorecardStat.size} bytes).`);
+}
+
 const scorecardRaw = await fs.readFile(scorecardSrc, "utf8");
 const parsed: unknown = JSON.parse(scorecardRaw);
 if (
@@ -66,8 +75,16 @@ await fs.writeFile(
 const SAFE_SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 for (const entry of doc.entries) {
-  if (!SAFE_SLUG_REGEX.test(entry.id)) {
-    throw new Error(`Unsafe badge entry id: "${entry.id}"`);
+  if (!entry || typeof entry.id !== "string" || !SAFE_SLUG_REGEX.test(entry.id)) {
+    throw new Error(`Unsafe badge entry id: "${String(entry?.id)}"`);
+  }
+  if (
+    !entry.report ||
+    typeof entry.report.grade !== "string" ||
+    typeof entry.report.score !== "number" ||
+    !Number.isFinite(entry.report.score)
+  ) {
+    throw new Error(`Invalid report payload for scorecard entry "${entry.id}".`);
   }
   const badge = {
     schemaVersion: 1,
@@ -81,6 +98,8 @@ for (const entry of doc.entries) {
     "utf8",
   );
 }
+
+await fs.writeFile(path.join(distSiteDir, ".nojekyll"), "", "utf8");
 
 console.log(
   `Built static MCP scorecard site into ${distSiteDir} (${doc.entries.length + 1} Shields badge JSON files).`,

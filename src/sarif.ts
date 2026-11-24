@@ -75,6 +75,20 @@ export function toSarifReport(report: AuditReport): SarifLog {
     });
   }
 
+  if (report.fatalError && results.length === 0) {
+    rulesMap.set("protocol.connect", {
+      id: "protocol.connect",
+      shortDescription: { text: "MCP server connection" },
+      defaultConfiguration: { level: "error" },
+    });
+    results.push({
+      ruleId: "protocol.connect",
+      level: "error",
+      message: { text: report.fatalError },
+      locations: [{ physicalLocation: { artifactLocation: { uri: artifactUri } } }],
+    });
+  }
+
   return {
     $schema: "https://json.schemastore.org/sarif-2.1.0.json",
     version: "2.1.0",

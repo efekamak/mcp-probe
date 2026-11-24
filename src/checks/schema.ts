@@ -206,7 +206,7 @@ function checkToolForProvider(
 
   walkSchema(schema, "$", 0, (obj, schemaPath) => {
     if (provider === "openai") {
-      if (obj.type === "array" && obj.items === undefined) {
+      if (obj.type === "array" && (!obj.items || typeof obj.items !== "object")) {
         addUnique({
           tool: tool.name,
           rule: "openai.array-items",
@@ -298,7 +298,7 @@ function checkToolForProvider(
           path: `${schemaPath}.anyOf`,
         });
       }
-      if (obj.type === "array" && obj.items === undefined) {
+      if (obj.type === "array" && (!obj.items || typeof obj.items !== "object")) {
         addUnique({
           tool: tool.name,
           rule: "gemini.array-items",

@@ -44,7 +44,11 @@ function renderCard(entry) {
 
   const head = el("button", "card-head");
   head.type = "button";
-  head.addEventListener("click", () => card.classList.toggle("is-open"));
+  head.setAttribute("aria-expanded", "false");
+  head.addEventListener("click", () => {
+    const isOpen = card.classList.toggle("is-open");
+    head.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  });
 
   const row1 = el("div", "card-row-1");
   const titleWrap = el("div");
@@ -158,8 +162,17 @@ function renderCard(entry) {
   return card;
 }
 
+function statChip(value, label, cls = "") {
+  const chip = el("span", cls ? `stat ${cls}` : "stat");
+  chip.append(el("strong", "", String(value)), label);
+  return chip;
+}
+
 async function init() {
   const res = await fetch(`./scorecard.json?t=${Date.now()}`);
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
   const data = await res.json();
 
   const metaEl = document.getElementById("run-meta");
@@ -173,11 +186,11 @@ async function init() {
   const s = data.summary;
   bar.replaceChildren(
     el("span", "stat", `${s.servers} SERVERS`),
-    (() => { const x = el("span", "stat"); x.append(el("strong", "", `${s.avgScore}/100`), "AVG SCORE"); return x; })(),
-    (() => { const x = el("span", "stat pass"); x.append(el("strong", "", String(s.passed)), "PASSED"); return x; })(),
-    (() => { const x = el("span", "stat warn"); x.append(el("strong", "", String(s.warned)), "WARNED"); return x; })(),
-    (() => { const x = el("span", "stat fail"); x.append(el("strong", "", String(s.failed + s.errors)), "FAILED"); return x; })(),
-    (() => { const x = el("span", "stat"); x.append(el("strong", "", String(s.totalTools)), "TOTAL TOOLS"); return x; })(),
+    statChip(`${s.avgScore}/100`, "AVG SCORE"),
+    statChip(s.passed, "PASSED", "pass"),
+    statChip(s.warned, "WARNED", "warn"),
+    statChip(s.failed + s.errors, "FAILED", "fail"),
+    statChip(s.totalTools, "TOTAL TOOLS"),
   );
 
   const container = document.getElementById("cards");

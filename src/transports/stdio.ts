@@ -192,11 +192,8 @@ export async function resolveStdioCommand(
 export function buildSafeChildEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
   const allowKeys = [
     "PATH",
-    "Path",
     "SystemRoot",
-    "SYSTEMROOT",
     "ComSpec",
-    "COMSPEC",
     "PATHEXT",
     "TEMP",
     "TMP",
@@ -367,20 +364,25 @@ export class StdioProbeTransport implements ProbeTransport {
 
   private handleStdoutChunk(text: string): void {
     this.stdoutBuf += text;
-    let newlineIdx = this.stdoutBuf.indexOf("\n");
-    if (newlineIdx === -1 && Buffer.byteLength(this.stdoutBuf, "utf8") > MAX_STDOUT_BUF_BYTES) {
-      if (this.strayStdoutLines.length < MAX_STRAY_LINES) {
-        this.strayStdoutLines.push(
-          `${this.stdoutBuf.slice(0, 260)}... [oversized unterminated stdout frame dropped]`,
-        );
-      }
-      this.stdoutBuf = "";
-      return;
-    }
+    let start = 0;
+    let newlineIdx = this.stdoutBuf.indexOf("\n", start);
+
     while (newlineIdx !== -1) {
-      const rawLine = this.stdoutBuf.slice(0, newlineIdx).replace(/\r$/, "");
-      this.stdoutBuf = this.stdoutBuf.slice(newlineIdx + 1);
-      newlineIdx = this.stdoutBuf.indexOf("\n");
+      const lineLen = newlineIdx - start;
+      if (lineLen > MAX_STDOUT_BUF_BYTES) {
+        if (this.strayStdoutLines.length < MAX_STRAY_LINES) {
+          this.strayStdoutLines.push(
+            `[oversized stdout frame dropped] ${this.stdoutBuf.slice(start, start + 120)}`,
+          );
+        }
+        start = newlineIdx + 1;
+        newlineIdx = this.stdoutBuf.indexOf("\n", start);
+        continue;
+      }
+
+      const rawLine = this.stdoutBuf.slice(start, newlineIdx).replace(/\r$/, "");
+      start = newlineIdx + 1;
+      newlineIdx = this.stdoutBuf.indexOf("\n", start);
 
       const trimmed = rawLine.trim();
       if (trimmed.length === 0) continue;
@@ -411,6 +413,18 @@ export class StdioProbeTransport implements ProbeTransport {
       }
 
       this.dispatchMessage(trimmed, msg);
+    }
+
+    if (start > 0) {
+      this.stdoutBuf = this.stdoutBuf.slice(start);
+    }
+    if (this.stdoutBuf.length > 0 && Buffer.byteLength(this.stdoutBuf, "utf8") > MAX_STDOUT_BUF_BYTES) {
+      if (this.strayStdoutLines.length < MAX_STRAY_LINES) {
+        this.strayStdoutLines.push(
+          `[oversized unterminated stdout frame dropped] ${this.stdoutBuf.slice(0, 120)}`,
+        );
+      }
+      this.stdoutBuf = "";
     }
   }
 
