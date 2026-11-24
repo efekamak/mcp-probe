@@ -42,6 +42,14 @@
       "url": "https://mcp.exa.ai/mcp"
     },
     {
+      "id": "langfuse-docs-mcp",
+      "name": "Langfuse Docs MCP",
+      "package": "langfuse.com/api/mcp",
+      "repositoryUrl": "https://github.com/langfuse/langfuse-docs",
+      "transport": "http",
+      "url": "https://langfuse.com/api/mcp"
+    },
+    {
       "id": "playwright-mcp",
       "name": "Playwright MCP",
       "package": "@playwright/mcp",

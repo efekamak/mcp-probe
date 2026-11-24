@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 jobs:
-  audit-and-build:
+  audit:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -30,6 +30,37 @@ jobs:
 
       - run: npm ci
       - run: npm run scorecard:run -- --out=generated/scorecard.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scorecard-json
+          path: generated/scorecard.json
+          if-no-files-found: error
+          retention-days: 1
+
+  build-site:
+    needs: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: scorecard-json
+          path: generated
+
       - run: npm run site:build
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
@@ -37,7 +68,7 @@ jobs:
           path: dist-site
 
   deploy:
-    needs: audit-and-build
+    needs: build-site
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5

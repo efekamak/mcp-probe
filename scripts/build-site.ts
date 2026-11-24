@@ -30,9 +30,26 @@ for (const file of ["index.html", "styles.css", "app.js"]) {
 }
 
 const scorecardRaw = await fs.readFile(scorecardSrc, "utf8");
-await fs.writeFile(path.join(distSiteDir, "scorecard.json"), scorecardRaw, "utf8");
-
-const doc = JSON.parse(scorecardRaw) as ScorecardDocument;
+const parsed: unknown = JSON.parse(scorecardRaw);
+if (
+  !parsed ||
+  typeof parsed !== "object" ||
+  Array.isArray(parsed) ||
+  (parsed as { schemaVersion?: unknown }).schemaVersion !== 1 ||
+  (parsed as { tool?: unknown }).tool !== "mcp-probe" ||
+  !Array.isArray((parsed as { entries?: unknown }).entries) ||
+  !(parsed as { summary?: unknown }).summary ||
+  typeof (parsed as { summary: { servers?: unknown; avgScore?: unknown } }).summary.servers !== "number" ||
+  typeof (parsed as { summary: { servers?: unknown; avgScore?: unknown } }).summary.avgScore !== "number"
+) {
+  throw new Error("Invalid scorecard.json structure.");
+}
+const doc = parsed as ScorecardDocument;
+await fs.writeFile(
+  path.join(distSiteDir, "scorecard.json"),
+  `${JSON.stringify(doc, null, 2)}\n`,
+  "utf8",
+);
 
 const overallBadge = {
   schemaVersion: 1,
