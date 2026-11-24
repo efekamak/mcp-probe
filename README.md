@@ -69,7 +69,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: efekamak/mcp-probe@v0.3.0
+      - uses: efekamak/mcp-probe@v0.3.1
         with:
           command: node
           args: '["dist/server.js"]'

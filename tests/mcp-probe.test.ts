@@ -449,6 +449,27 @@ describe("CLI parsing and bundled GitHub Action", () => {
     assert.equal(parseCliArgs(["--http", "https://example.com/mcp", "--tokenizer", "nope"]).ok, false);
     assert.equal(parseCliArgs(["--http", "https://example.com/mcp", "--gemini-mode", "nope"]).ok, false);
 
+    // Malformed runtime metadata from buggy servers must never crash checks or fake annotations.
+    const weirdTools = [
+      { name: "t_bad", description: 12345, annotations: "not-obj", inputSchema: { type: "object", properties: {} } },
+      { name: "t_arr", description: { nested: 1 }, annotations: [1, 2], inputSchema: { type: "object", properties: {} } },
+    ] as unknown as Parameters<typeof runContextChecks>[0];
+    const weirdPrompts = [
+      { name: "p_obj_args", description: 99, arguments: { not: "array" } },
+      { name: "p_null_arg", arguments: [null, 42, { name: 123 }] },
+    ] as unknown as Parameters<typeof runSafetyChecks>[2];
+    const weirdResources = [
+      { uri: "docs://a", name: "r1", description: { bad: true }, title: 999 },
+    ] as unknown as Parameters<typeof runSafetyChecks>[3];
+    const weirdCtx = runContextChecks(weirdTools);
+    assert.equal(weirdCtx.context.missingDescriptions, 2);
+    assert.equal(weirdCtx.context.missingAnnotations, 2);
+    const weirdSchema = runSchemaChecks(weirdTools);
+    assert.equal(weirdSchema.providers.anthropic.warnings, 2);
+    assert.equal(weirdSchema.providers.cursor.warnings, 2);
+    const weirdSafety = runSafetyChecks(weirdTools, [], weirdPrompts, weirdResources);
+    assert.equal(weirdSafety.safety.passed, true);
+
     const encodedSarif = toSarifReport({
       schemaVersion: 1,
       tool: "mcp-probe",

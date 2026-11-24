@@ -166,7 +166,10 @@ function checkToolForProvider(
     }
   }
 
-  if (provider === "anthropic" && (!tool.description || tool.description.trim().length === 0)) {
+  if (
+    provider === "anthropic" &&
+    (typeof tool.description !== "string" || tool.description.trim().length === 0)
+  ) {
     issues.push({
       tool: tool.name,
       rule: "anthropic.description",
@@ -176,7 +179,13 @@ function checkToolForProvider(
   }
 
   if (provider === "cursor") {
-    if (!tool.annotations || Object.keys(tool.annotations).length === 0) {
+    const hasValidAnnotations = Boolean(
+      tool.annotations &&
+        typeof tool.annotations === "object" &&
+        !Array.isArray(tool.annotations) &&
+        Object.keys(tool.annotations).length > 0,
+    );
+    if (!hasValidAnnotations) {
       issues.push({
         tool: tool.name,
         rule: "cursor.annotations",

@@ -32,8 +32,14 @@ export function runContextChecks(
   const entries: ToolTokenEntry[] = tools.map((tool) => {
     const serialized = JSON.stringify(tool);
     const bytes = Buffer.byteLength(serialized, "utf8");
-    const hasDescription = Boolean(tool.description && tool.description.trim().length > 0);
-    const hasAnnotations = Boolean(tool.annotations && Object.keys(tool.annotations).length > 0);
+    const hasDescription =
+      typeof tool.description === "string" && tool.description.trim().length > 0;
+    const hasAnnotations = Boolean(
+      tool.annotations &&
+        typeof tool.annotations === "object" &&
+        !Array.isArray(tool.annotations) &&
+        Object.keys(tool.annotations).length > 0,
+    );
     return {
       name: tool.name,
       bytes,

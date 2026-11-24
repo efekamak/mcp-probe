@@ -106,29 +106,44 @@ export function runSafetyChecks(
   const findings: SafetyFinding[] = [];
 
   for (const tool of tools) {
-    const texts: string[] = [tool.name];
-    if (tool.title) texts.push(tool.title);
-    if (tool.description) texts.push(tool.description);
+    const texts: string[] = [];
+    if (typeof tool.name === "string") texts.push(tool.name);
+    if (typeof tool.title === "string") texts.push(tool.title);
+    if (typeof tool.description === "string") texts.push(tool.description);
     if (tool.inputSchema) collectSchemaTextFields(tool.inputSchema, 0, texts);
-    scanTextSurface(tool.name, texts.join("\n"), findings);
+    scanTextSurface(typeof tool.name === "string" ? tool.name : "(unknown)", texts.join("\n"), findings);
   }
 
   for (const prompt of prompts) {
-    const texts: string[] = [prompt.name];
-    if (prompt.title) texts.push(prompt.title);
-    if (prompt.description) texts.push(prompt.description);
-    for (const arg of prompt.arguments ?? []) {
-      texts.push(arg.name);
-      if (arg.description) texts.push(arg.description);
+    const texts: string[] = [];
+    if (typeof prompt.name === "string") texts.push(prompt.name);
+    if (typeof prompt.title === "string") texts.push(prompt.title);
+    if (typeof prompt.description === "string") texts.push(prompt.description);
+    if (Array.isArray(prompt.arguments)) {
+      for (const arg of prompt.arguments) {
+        if (!arg || typeof arg !== "object") continue;
+        if (typeof arg.name === "string") texts.push(arg.name);
+        if (typeof arg.description === "string") texts.push(arg.description);
+      }
     }
-    scanTextSurface(`prompt:${prompt.name}`, texts.join("\n"), findings);
+    scanTextSurface(
+      `prompt:${typeof prompt.name === "string" ? prompt.name : "(unknown)"}`,
+      texts.join("\n"),
+      findings,
+    );
   }
 
   for (const resource of resources) {
-    const texts: string[] = [resource.name, resource.uri];
-    if (resource.title) texts.push(resource.title);
-    if (resource.description) texts.push(resource.description);
-    scanTextSurface(`resource:${resource.name}`, texts.join("\n"), findings);
+    const texts: string[] = [];
+    if (typeof resource.name === "string") texts.push(resource.name);
+    if (typeof resource.uri === "string") texts.push(resource.uri);
+    if (typeof resource.title === "string") texts.push(resource.title);
+    if (typeof resource.description === "string") texts.push(resource.description);
+    scanTextSurface(
+      `resource:${typeof resource.name === "string" ? resource.name : "(unknown)"}`,
+      texts.join("\n"),
+      findings,
+    );
   }
 
   const seenErrorLeakRules = new Set<string>();
