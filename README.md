@@ -20,10 +20,10 @@ Connects directly to any MCP server over **stdio** or **Streamable HTTP** (`appl
 2. **Cross-provider tool schema compatibility**
    - **OpenAI:** tool name regex `^[a-zA-Z0-9_-]{1,64}$`, root `type: "object"`, array `items`, non-empty `enum`, strict-mode readiness (`additionalProperties: false`)
    - **Anthropic (Claude):** tool name regex `^[a-zA-Z0-9_-]{1,128}$`, root `type: "object"`, descriptions
-   - **Google Gemini:** tool name regex, union `type` arrays, unsupported keywords (`$ref`, `$defs`, `oneOf`, `allOf`, `not`, `const`, `patternProperties`, `exclusiveMinimum`/`exclusiveMaximum`), plus warnings for OpenAPI `parameters` keywords (`$schema`, `additionalProperties`, nested `anyOf`)
+   - **Google Gemini:** tool name regex, root `type: "object"`, array `items`, top-level combinators, plus warnings (or hard failures under `--gemini-mode parameters`) for legacy `FunctionDeclaration.parameters` OpenAPI 3.0 restrictions (union `type` arrays, `$ref`, `$defs`, `oneOf`, `allOf`, `not`, `const`, `patternProperties`, `exclusiveMinimum`/`exclusiveMaximum`, `$schema`, `additionalProperties`, nested `anyOf`)
    - **Cursor:** tool name limits, 40-tool active budget warning, MCP safety annotations (`readOnlyHint`, `destructiveHint`)
 3. **Context & token budget**
-   - Serialized UTF-8 byte size and estimated token cost (`ceil(bytes / 4)`) of `tools/list` injected on every model turn, heaviest tools breakdown, missing or oversized descriptions, and missing MCP annotations
+   - Serialized UTF-8 byte size and deterministic `o200k_base` BPE token count (or fast `ceil(bytes / 4)` via `--tokenizer bytes4`) of `tools/list` injected on every model turn, heaviest tools breakdown, missing or oversized descriptions, and missing MCP annotations
 4. **Tool-poisoning & error hygiene**
    - Flags invisible zero-width / BiDi Unicode characters (`U+200B..200F`, `U+202A..202E`, `U+2060..206F`, `U+FEFF`)
    - Flags prompt-injection directives (`ignore previous instructions`, `do not tell the user`, `<IMPORTANT>`, `<system>`, sensitive credential file references, cross-tool shadowing phrases)
@@ -69,7 +69,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: efekamak/mcp-probe@v0.2.5
+      - uses: efekamak/mcp-probe@v0.3.0
         with:
           command: node
           args: '["dist/server.js"]'
@@ -85,6 +85,8 @@ jobs:
 | `working-directory` | `.` | Relative working directory inside `GITHUB_WORKSPACE`. |
 | `timeout-ms` | `15000` | Per-step timeout in milliseconds (`500` to `120000`). |
 | `fail-on` | `fail` | Failure threshold: `fail`, `warn`, or `none`. |
+| `tokenizer` | `o200k_base` | Token counter for context budget: `o200k_base` or `bytes4`. |
+| `gemini-mode` | `json-schema` | Gemini schema mode: `json-schema` (`parametersJsonSchema`) or `parameters` (strict legacy OpenAPI subset). |
 
 ### Action outputs
 

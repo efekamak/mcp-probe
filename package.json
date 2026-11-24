@@ -1,6 +1,6 @@
 {
   "name": "mcp-probe",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "description": "Deterministic conformance, cross-provider tool schema compatibility, context budget, and tool-poisoning audit CLI and GitHub Action for MCP servers.",
   "type": "module",
   "license": "MIT",
@@ -37,7 +37,8 @@
     "site:build": "node --import tsx scripts/build-site.ts"
   },
   "dependencies": {
-    "@actions/core": "3.0.1"
+    "@actions/core": "3.0.1",
+    "gpt-tokenizer": "4.1.2"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 import { parseCliArgs } from "../src/cli.js";
+import { estimateTokens, runContextChecks } from "../src/checks/context.js";
 import { runSafetyChecks } from "../src/checks/safety.js";
 import { runSchemaChecks } from "../src/checks/schema.js";
 import { formatMarkdownSummary, formatTerminalReport } from "../src/format.js";
@@ -385,21 +386,68 @@ describe("CLI parsing and bundled GitHub Action", () => {
     assert.equal(safetyRes.safety.passed, true);
     assert.ok(Date.now() - redosStart < 100, `Expected linear safety scan, took ${Date.now() - redosStart}ms`);
 
-    // Verify walkSchema descends into definitions and prefixItems.
-    const nestedSchema = runSchemaChecks([
-      {
-        name: "nested_tool",
-        description: "Test nested schema walk.",
-        inputSchema: {
-          type: "object",
-          definitions: { badArr: { type: "array" } },
-          properties: { tuple: { type: "array", prefixItems: [{ type: ["string", "null"] }] } },
+    // Verify walkSchema descends into definitions and prefixItems and respects geminiMode.
+    const nestedTool = {
+      name: "nested_tool",
+      description: "Test nested schema walk.",
+      inputSchema: {
+        type: "object",
+        definitions: { badArr: { type: "array" } },
+        properties: {
+          limit: { type: "integer", exclusiveMinimum: 0 },
+          tuple: { type: "array", prefixItems: [{ type: ["string", "null"] }] },
         },
       },
-    ]);
-    assert.equal(nestedSchema.providers.openai.compatible, false);
-    assert.equal(nestedSchema.providers.gemini.compatible, false);
-    assert.ok(nestedSchema.providers.gemini.issues.some((i) => i.rule === "gemini.union-type-array"));
+    };
+    const nestedJsonSchema = runSchemaChecks([nestedTool], { geminiMode: "json-schema" });
+    assert.equal(nestedJsonSchema.providers.openai.compatible, false);
+    assert.equal(nestedJsonSchema.providers.gemini.compatible, false); // missing items on badArr
+    assert.ok(
+      nestedJsonSchema.providers.gemini.issues.some(
+        (i) => i.rule === "gemini.unsupported-exclusiveMinimum" && i.severity === "warn",
+      ),
+    );
+    assert.ok(
+      nestedJsonSchema.providers.gemini.issues.some(
+        (i) => i.rule === "gemini.union-type-array" && i.severity === "warn",
+      ),
+    );
+
+    // Pure exclusiveMinimum tool: warn in json-schema mode, fail in legacy parameters mode.
+    const exMinTool = {
+      name: "paginated_list",
+      description: "List items.",
+      inputSchema: {
+        type: "object",
+        properties: { pageSize: { type: "integer", exclusiveMinimum: 0 } },
+      },
+    };
+    const modernGemini = runSchemaChecks([exMinTool], { geminiMode: "json-schema" });
+    assert.equal(modernGemini.providers.gemini.compatible, true);
+    assert.equal(modernGemini.providers.gemini.warnings, 1);
+    const legacyGemini = runSchemaChecks([exMinTool], { geminiMode: "parameters" });
+    assert.equal(legacyGemini.providers.gemini.compatible, false);
+    assert.equal(legacyGemini.providers.gemini.errors, 1);
+
+    // Exact o200k_base tokenizer vs bytes4 + special token safety (<|endoftext|>).
+    const specialTokensCount = estimateTokens("hello <|endoftext|> world", "o200k_base");
+    assert.ok(specialTokensCount > 0);
+    const ctxO200k = runContextChecks([exMinTool], 0, 0, "o200k_base");
+    const ctxBytes4 = runContextChecks([exMinTool], 0, 0, "bytes4");
+    assert.equal(ctxO200k.context.tokenizer, "o200k_base");
+    assert.equal(ctxBytes4.context.tokenizer, "bytes4");
+    assert.ok(ctxO200k.context.estimatedTokens > 0);
+    assert.ok(ctxO200k.context.estimatedTokens < ctxBytes4.context.estimatedTokens);
+
+    // CLI parsing for --tokenizer and --gemini-mode.
+    const tokCli = parseCliArgs(["--http", "https://example.com/mcp", "--tokenizer", "bytes4", "--gemini-mode", "parameters"]);
+    assert.equal(tokCli.ok, true);
+    if (tokCli.ok) {
+      assert.equal(tokCli.value.tokenizer, "bytes4");
+      assert.equal(tokCli.value.geminiMode, "parameters");
+    }
+    assert.equal(parseCliArgs(["--http", "https://example.com/mcp", "--tokenizer", "nope"]).ok, false);
+    assert.equal(parseCliArgs(["--http", "https://example.com/mcp", "--gemini-mode", "nope"]).ok, false);
 
     const encodedSarif = toSarifReport({
       schemaVersion: 1,

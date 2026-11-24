@@ -1,4 +1,11 @@
-import type { CheckResult, McpTool, ProviderCompatibility, ProviderId, ProviderIssue } from "../types.js";
+import type {
+  CheckResult,
+  GeminiSchemaMode,
+  McpTool,
+  ProviderCompatibility,
+  ProviderId,
+  ProviderIssue,
+} from "../types.js";
 
 const OPENAI_NAME_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
 const ANTHROPIC_NAME_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -83,7 +90,11 @@ function walkSchema(
   }
 }
 
-function checkToolForProvider(tool: McpTool, provider: ProviderId): ProviderIssue[] {
+function checkToolForProvider(
+  tool: McpTool,
+  provider: ProviderId,
+  geminiMode: GeminiSchemaMode,
+): ProviderIssue[] {
   const issues: ProviderIssue[] = [];
   const schema = tool.inputSchema;
 
@@ -227,31 +238,32 @@ function checkToolForProvider(tool: McpTool, provider: ProviderId): ProviderIssu
     }
 
     if (provider === "gemini") {
+      const legacyParamsSeverity: "fail" | "warn" = geminiMode === "parameters" ? "fail" : "warn";
       if (Array.isArray(obj.type)) {
         addUnique({
           tool: tool.name,
           rule: "gemini.union-type-array",
-          severity: "fail",
-          message: `JSON Schema union type array ${JSON.stringify(obj.type)} is rejected by Gemini OpenAPI 3.0 schema validation.`,
+          severity: legacyParamsSeverity,
+          message: `JSON Schema union type array ${JSON.stringify(obj.type)} is rejected by Gemini FunctionDeclaration.parameters (OpenAPI 3.0 subset); accepted by parametersJsonSchema.`,
           path: `${schemaPath}.type`,
-          fix: "Use a single primitive type instead of a JSON Schema type array.",
+          fix: "Use a single primitive type for FunctionDeclaration.parameters compatibility, or have clients send parametersJsonSchema.",
         });
       }
       for (const kw of GEMINI_FAIL_KEYWORDS) {
         if (obj[kw] !== undefined && !(schemaPath === "$" && (kw === "oneOf" || kw === "allOf" || kw === "not"))) {
           const fix =
             kw === "exclusiveMinimum"
-              ? "Replace exclusiveMinimum with inclusive minimum (for integers, use minimum: N + 1)."
+              ? "Replace exclusiveMinimum with inclusive minimum (for integers, use minimum: N + 1) for FunctionDeclaration.parameters compatibility."
               : kw === "exclusiveMaximum"
-                ? "Replace exclusiveMaximum with inclusive maximum (for integers, use maximum: N - 1)."
+                ? "Replace exclusiveMaximum with inclusive maximum (for integers, use maximum: N - 1) for FunctionDeclaration.parameters compatibility."
                 : kw === "$ref" || kw === "$defs" || kw === "definitions"
-                  ? "Inline referenced sub-schemas instead of using $ref/$defs."
-                  : `Remove or rewrite "${kw}" into standard OpenAPI 3.0 properties.`;
+                  ? "Inline referenced sub-schemas for FunctionDeclaration.parameters compatibility, or send parametersJsonSchema."
+                  : `Remove or rewrite "${kw}" for FunctionDeclaration.parameters compatibility, or send parametersJsonSchema.`;
           addUnique({
             tool: tool.name,
             rule: `gemini.unsupported-${kw}`,
-            severity: "fail",
-            message: `Keyword "${kw}" is rejected by Google Gemini tool schema validation.`,
+            severity: legacyParamsSeverity,
+            message: `Keyword "${kw}" is rejected by Gemini FunctionDeclaration.parameters (OpenAPI 3.0 subset); accepted by parametersJsonSchema.`,
             path: `${schemaPath}.${kw}`,
             fix,
           });
@@ -292,10 +304,14 @@ function checkToolForProvider(tool: McpTool, provider: ProviderId): ProviderIssu
   return issues;
 }
 
-export function runSchemaChecks(tools: McpTool[]): {
+export function runSchemaChecks(
+  tools: McpTool[],
+  options: { geminiMode?: GeminiSchemaMode } = {},
+): {
   providers: Record<ProviderId, ProviderCompatibility>;
   checks: CheckResult[];
 } {
+  const geminiMode: GeminiSchemaMode = options.geminiMode ?? "json-schema";
   const providerIds: ProviderId[] = ["openai", "anthropic", "gemini", "cursor"];
   const providers = {} as Record<ProviderId, ProviderCompatibility>;
   const checks: CheckResult[] = [];
@@ -305,7 +321,7 @@ export function runSchemaChecks(tools: McpTool[]): {
     let compatibleTools = 0;
 
     for (const tool of tools) {
-      const toolIssues = checkToolForProvider(tool, provider);
+      const toolIssues = checkToolForProvider(tool, provider, geminiMode);
       allIssues.push(...toolIssues);
       if (!toolIssues.some((i) => i.severity === "fail")) {
         compatibleTools += 1;

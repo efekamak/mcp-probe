@@ -11,6 +11,7 @@ export type {
   CheckResult,
   CheckStatus,
   ContextBudgetSummary,
+  GeminiSchemaMode,
   Grade,
   HttpTarget,
   McpPrompt,
@@ -27,6 +28,7 @@ export type {
   SafetyFinding,
   SafetySummary,
   StdioTarget,
+  TokenizerMode,
   ToolTokenEntry,
   TransportKind,
 } from "./types.js";

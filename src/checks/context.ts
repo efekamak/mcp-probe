@@ -1,18 +1,30 @@
-import type { CheckResult, ContextBudgetSummary, McpTool, ToolTokenEntry } from "../types.js";
+import { countTokens as countO200kTokens } from "gpt-tokenizer/encoding/o200k_base";
+import type {
+  CheckResult,
+  ContextBudgetSummary,
+  McpTool,
+  TokenizerMode,
+  ToolTokenEntry,
+} from "../types.js";
 
 const WARN_TOKEN_BUDGET = 6_000;
 const FAIL_TOKEN_BUDGET = 16_000;
 const MAX_RECOMMENDED_DESC_CHARS = 1_500;
+const SAFE_TOKENIZE_OPTIONS = { disallowedSpecial: new Set<string>() };
 
-export function estimateTokens(text: string): number {
-  const bytes = Buffer.byteLength(text, "utf8");
-  return Math.ceil(bytes / 4);
+export function estimateTokens(text: string, mode: TokenizerMode = "o200k_base"): number {
+  if (mode === "bytes4") {
+    const bytes = Buffer.byteLength(text, "utf8");
+    return Math.ceil(bytes / 4);
+  }
+  return countO200kTokens(text, SAFE_TOKENIZE_OPTIONS);
 }
 
 export function runContextChecks(
   tools: McpTool[],
   promptCount: number = 0,
   resourceCount: number = 0,
+  tokenizer: TokenizerMode = "o200k_base",
 ): {
   context: ContextBudgetSummary;
   checks: CheckResult[];
@@ -25,17 +37,25 @@ export function runContextChecks(
     return {
       name: tool.name,
       bytes,
-      estimatedTokens: Math.ceil(bytes / 4),
+      estimatedTokens: estimateTokens(serialized, tokenizer),
       hasDescription,
       hasAnnotations,
     };
   });
 
+  const serializedCatalog = tools.length > 0 ? JSON.stringify(tools) : "";
   const totalBytes = entries.reduce((sum, e) => sum + e.bytes, 0);
-  const estimatedTokens = Math.ceil(totalBytes / 4);
+  const estimatedTokens =
+    tools.length === 0
+      ? 0
+      : tokenizer === "bytes4"
+        ? Math.ceil(totalBytes / 4)
+        : estimateTokens(serializedCatalog, tokenizer);
   const missingDescriptions = entries.filter((e) => !e.hasDescription).length;
   const missingAnnotations = entries.filter((e) => !e.hasAnnotations).length;
-  const heaviestTools = [...entries].sort((a, b) => b.bytes - a.bytes).slice(0, 5);
+  const heaviestTools = [...entries].sort((a, b) => b.estimatedTokens - a.estimatedTokens || b.bytes - a.bytes).slice(0, 5);
+  const tokenUnitLabel = tokenizer === "o200k_base" ? "o200k_base tokens" : "est. tokens (bytes/4)";
+  const tokenPrefix = tokenizer === "o200k_base" ? "" : "~";
 
   const checks: CheckResult[] = [];
 
@@ -55,9 +75,9 @@ export function runContextChecks(
     summary:
       tools.length === 0
         ? "No tools exposed."
-        : `${tools.length} tool(s), ${(totalBytes / 1024).toFixed(1)} KiB (~${estimatedTokens.toLocaleString("en-US")} est. tokens injected per turn).`,
+        : `${tools.length} tool(s), ${(totalBytes / 1024).toFixed(1)} KiB (${tokenPrefix}${estimatedTokens.toLocaleString("en-US")} ${tokenUnitLabel} injected per turn).`,
     details: heaviestTools.map(
-      (t) => `${t.name}: ~${t.estimatedTokens.toLocaleString("en-US")} est. tokens (${t.bytes} bytes)`,
+      (t) => `${t.name}: ${tokenPrefix}${t.estimatedTokens.toLocaleString("en-US")} ${tokenUnitLabel} (${t.bytes} bytes)`,
     ),
   });
 
@@ -102,6 +122,7 @@ export function runContextChecks(
 
   return {
     context: {
+      tokenizer,
       toolCount: tools.length,
       promptCount,
       resourceCount,

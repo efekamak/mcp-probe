@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { formatMarkdownSummary, formatTerminalReport } from "./format.js";
 import { probeMcpServer, TOOL_VERSION } from "./runner.js";
 import { toSarifReport } from "./sarif.js";
-import type { ProbeTarget } from "./types.js";
+import type { GeminiSchemaMode, ProbeTarget, TokenizerMode } from "./types.js";
 
 function printHelp(): void {
   process.stdout.write(`mcp-probe v${TOOL_VERSION}
@@ -19,20 +19,22 @@ Usage:
   mcp-probe --http <url> [options]
 
 Options:
-  --stdio                Connect to an MCP server over stdio (put command after --)
-  --http <url>           Connect to a Streamable HTTP MCP endpoint
-  --header "Key: Value"  Add an HTTP request header (repeatable)
-  --env KEY=VALUE        Pass an explicit env var to a stdio server (repeatable)
-  --cwd <dir>            Working directory for stdio server
-  --timeout <ms>         Per-step timeout in ms (default: 15000)
-  --json                 Print JSON report to stdout
-  --markdown             Print HTML/Markdown summary to stdout
-  --sarif                Print SARIF 2.1.0 report to stdout
-  --out <file>           Write JSON report to a file
-  --sarif-out <file>     Write SARIF 2.1.0 report to a file
-  --strict               Exit 1 on warnings as well as failures
-  -v, --version          Print version
-  -h, --help             Show this help
+  --stdio                       Connect to an MCP server over stdio (put command after --)
+  --http <url>                  Connect to a Streamable HTTP MCP endpoint
+  --header "Key: Value"         Add an HTTP request header (repeatable)
+  --env KEY=VALUE               Pass an explicit env var to a stdio server (repeatable)
+  --cwd <dir>                   Working directory for stdio server
+  --timeout <ms>                Per-step timeout in ms (default: 15000)
+  --tokenizer <o200k|bytes4>    Token counter for context budget (default: o200k_base)
+  --gemini-mode <mode>          Gemini schema mode: json-schema (default) or parameters
+  --json                        Print JSON report to stdout
+  --markdown                    Print HTML/Markdown summary to stdout
+  --sarif                       Print SARIF 2.1.0 report to stdout
+  --out <file>                  Write JSON report to a file
+  --sarif-out <file>            Write SARIF 2.1.0 report to a file
+  --strict                      Exit 1 on warnings as well as failures
+  -v, --version                 Print version
+  -h, --help                    Show this help
 `);
 }
 
@@ -43,6 +45,8 @@ export type ParsedCliArgs = {
   sarif: boolean;
   strict: boolean;
   timeoutMs: number;
+  tokenizer: TokenizerMode;
+  geminiMode: GeminiSchemaMode;
   outPath: string | null;
   sarifOutPath: string | null;
 };
@@ -56,6 +60,8 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
   let sarif = false;
   let strict = false;
   let timeoutMs = 15_000;
+  let tokenizer: TokenizerMode = "o200k_base";
+  let geminiMode: GeminiSchemaMode = "json-schema";
   let outPath: string | null = null;
   let sarifOutPath: string | null = null;
   const headers: Record<string, string> = {};
@@ -142,6 +148,26 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
       timeoutMs = parsed;
       continue;
     }
+    if (arg === "--tokenizer") {
+      const rawTok = (argv[++i] ?? "").trim().toLowerCase();
+      if (rawTok === "o200k" || rawTok === "o200k_base") {
+        tokenizer = "o200k_base";
+      } else if (rawTok === "bytes4") {
+        tokenizer = "bytes4";
+      } else {
+        return { ok: false, exitCode: 2, message: "--tokenizer must be o200k_base (or o200k) or bytes4." };
+      }
+      continue;
+    }
+    if (arg === "--gemini-mode") {
+      const rawMode = (argv[++i] ?? "").trim().toLowerCase();
+      if (rawMode === "json-schema" || rawMode === "parameters") {
+        geminiMode = rawMode;
+      } else {
+        return { ok: false, exitCode: 2, message: "--gemini-mode must be json-schema or parameters." };
+      }
+      continue;
+    }
     if (arg === "--header") {
       const raw = argv[++i] ?? "";
       const sep = raw.indexOf(":");
@@ -180,6 +206,8 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
         sarif,
         strict,
         timeoutMs,
+        tokenizer,
+        geminiMode,
         outPath,
         sarifOutPath,
       },
@@ -209,6 +237,8 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
         sarif,
         strict,
         timeoutMs,
+        tokenizer,
+        geminiMode,
         outPath,
         sarifOutPath,
       },
@@ -233,8 +263,13 @@ async function main(): Promise<void> {
     process.exit(parsed.exitCode);
   }
 
-  const { target, json, markdown, sarif, strict, timeoutMs, outPath, sarifOutPath } = parsed.value;
-  const report = await probeMcpServer(target, { stepTimeoutMs: timeoutMs, failOnWarn: strict });
+  const { target, json, markdown, sarif, strict, timeoutMs, tokenizer, geminiMode, outPath, sarifOutPath } = parsed.value;
+  const report = await probeMcpServer(target, {
+    stepTimeoutMs: timeoutMs,
+    failOnWarn: strict,
+    tokenizer,
+    geminiMode,
+  });
 
   if (outPath) {
     const resolvedOut = path.resolve(outPath);

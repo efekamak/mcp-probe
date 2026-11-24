@@ -6,7 +6,7 @@ import { formatMarkdownSummary } from "../src/format.js";
 import { probeMcpServer } from "../src/runner.js";
 import { scrubText } from "../src/sanitize.js";
 import { toSarifReport } from "../src/sarif.js";
-import type { ProbeTarget } from "../src/types.js";
+import type { GeminiSchemaMode, ProbeTarget, TokenizerMode } from "../src/types.js";
 
 function parseArgsInput(raw: string): string[] {
   const trimmed = raw.trim();
@@ -104,10 +104,26 @@ export async function run(): Promise<void> {
     const workingDirInput = core.getInput("working-directory");
     const timeoutRaw = core.getInput("timeout-ms").trim() || "15000";
     const failOn = (core.getInput("fail-on").trim() || "fail").toLowerCase();
+    const tokenizerRaw = (core.getInput("tokenizer").trim() || "o200k_base").toLowerCase();
+    const geminiModeRaw = (core.getInput("gemini-mode").trim() || "json-schema").toLowerCase();
 
     if (!["fail", "warn", "none"].includes(failOn)) {
       throw new Error(`Invalid fail-on value "${failOn}" (expected fail, warn, or none).`);
     }
+
+    let tokenizer: TokenizerMode;
+    if (tokenizerRaw === "o200k" || tokenizerRaw === "o200k_base") {
+      tokenizer = "o200k_base";
+    } else if (tokenizerRaw === "bytes4") {
+      tokenizer = "bytes4";
+    } else {
+      throw new Error(`Invalid tokenizer value "${tokenizerRaw}" (expected o200k_base or bytes4).`);
+    }
+
+    if (geminiModeRaw !== "json-schema" && geminiModeRaw !== "parameters") {
+      throw new Error(`Invalid gemini-mode value "${geminiModeRaw}" (expected json-schema or parameters).`);
+    }
+    const geminiMode: GeminiSchemaMode = geminiModeRaw;
 
     const timeoutMs = /^\d+$/.test(timeoutRaw) ? Number.parseInt(timeoutRaw, 10) : Number.NaN;
     if (!Number.isFinite(timeoutMs) || timeoutMs < 500 || timeoutMs > 120_000) {
@@ -137,6 +153,8 @@ export async function run(): Promise<void> {
     const report = await probeMcpServer(target, {
       stepTimeoutMs: timeoutMs,
       failOnWarn: failOn === "warn",
+      tokenizer,
+      geminiMode,
     });
 
     let resultPath = "";

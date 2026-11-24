@@ -43,7 +43,7 @@
       <footer class="foot">
         <p>
           Audits run daily on ephemeral GitHub-hosted Ubuntu runners with zero API keys and zero LLM calls.
-          Token counts are deterministic UTF-8 estimates (<code>ceil(bytes / 4)</code>) of serialized <code>tools/list</code> output.
+          Token counts use the deterministic <code>o200k_base</code> BPE tokenizer on serialized <code>tools/list</code> output.
         </p>
         <p class="foot-links">
           <a href="https://github.com/efekamak/mcp-probe" target="_blank" rel="noopener noreferrer">GitHub Repo</a>

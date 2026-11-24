@@ -73,6 +73,8 @@ export async function probeMcpServer(
   const startedMs = Date.now();
   const timestamp = new Date(startedMs).toISOString();
   const stepTimeoutMs = options.stepTimeoutMs ?? options.timeoutMs ?? 15_000;
+  const tokenizer = options.tokenizer ?? "o200k_base";
+  const geminiMode = options.geminiMode ?? "json-schema";
 
   const transport: ProbeTransport =
     target.transport === "http"
@@ -107,6 +109,7 @@ export async function probeMcpServer(
         checks: protocol.checks,
         providers: emptyProviders(),
         context: {
+          tokenizer,
           toolCount: 0,
           promptCount: 0,
           resourceCount: 0,
@@ -126,11 +129,12 @@ export async function probeMcpServer(
       };
     }
 
-    const schema = runSchemaChecks(protocol.tools);
+    const schema = runSchemaChecks(protocol.tools, { geminiMode });
     const context = runContextChecks(
       protocol.tools,
       protocol.prompts.length,
       protocol.resources.length,
+      tokenizer,
     );
     const safety = runSafetyChecks(
       protocol.tools,

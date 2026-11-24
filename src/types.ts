@@ -6,6 +6,10 @@ export type CheckStatus = "pass" | "warn" | "fail" | "skip";
 
 export type ProviderId = "openai" | "anthropic" | "gemini" | "cursor";
 
+export type TokenizerMode = "o200k_base" | "bytes4";
+
+export type GeminiSchemaMode = "json-schema" | "parameters";
+
 export type Grade = "A" | "B" | "C" | "D" | "F";
 
 export type McpToolAnnotations = {
@@ -90,6 +94,7 @@ export type ToolTokenEntry = {
 };
 
 export type ContextBudgetSummary = {
+  tokenizer?: TokenizerMode;
   toolCount: number;
   promptCount: number;
   resourceCount: number;
@@ -162,4 +167,6 @@ export type ProbeOptions = {
   timeoutMs?: number;
   stepTimeoutMs?: number;
   failOnWarn?: boolean;
+  tokenizer?: TokenizerMode;
+  geminiMode?: GeminiSchemaMode;
 };

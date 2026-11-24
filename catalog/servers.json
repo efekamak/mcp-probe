@@ -34,6 +34,14 @@
       "url": "https://mcp.context7.com/mcp"
     },
     {
+      "id": "exa-http-mcp",
+      "name": "Exa Remote MCP",
+      "package": "mcp.exa.ai",
+      "repositoryUrl": "https://github.com/exa-labs/exa-mcp-server",
+      "transport": "http",
+      "url": "https://mcp.exa.ai/mcp"
+    },
+    {
       "id": "playwright-mcp",
       "name": "Playwright MCP",
       "package": "@playwright/mcp",
@@ -95,6 +103,15 @@
       "transport": "stdio",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    {
+      "id": "mastra-docs-mcp",
+      "name": "Mastra Docs MCP",
+      "package": "@mastra/mcp-docs-server",
+      "repositoryUrl": "https://github.com/mastra-ai/mastra",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@mastra/mcp-docs-server"]
     }
   ]
 }

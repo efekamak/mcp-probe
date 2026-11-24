@@ -29,6 +29,14 @@ inputs:
     description: "Failure threshold: fail (default), warn, or none."
     required: false
     default: "fail"
+  tokenizer:
+    description: "Token counter for context budget: o200k_base (default) or bytes4."
+    required: false
+    default: "o200k_base"
+  gemini-mode:
+    description: "Gemini schema mode: json-schema (default, parametersJsonSchema) or parameters (strict legacy OpenAPI subset)."
+    required: false
+    default: "json-schema"
 outputs:
   status:
     description: "Audit outcome: passed, warned, failed, or error."

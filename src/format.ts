@@ -22,6 +22,13 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
+function formatTokenText(report: AuditReport): string {
+  const count = report.context.estimatedTokens.toLocaleString("en-US");
+  return report.context.tokenizer === "bytes4"
+    ? `~${count} est. tokens`
+    : `${count} o200k_base tokens`;
+}
+
 export function formatTerminalReport(report: AuditReport): string {
   const lines: string[] = [];
   const serverLabel = report.server.name
@@ -33,7 +40,7 @@ export function formatTerminalReport(report: AuditReport): string {
     `Score: ${report.score}/100 (Grade ${report.grade})  |  Status: ${report.status.toUpperCase()}  |  ${report.durationMs}ms`,
   );
   lines.push(
-    `Transport: ${report.target.transport}  |  Protocol: ${report.server.protocolVersion ?? "n/a"}  |  Tools: ${report.context.toolCount} (~${report.context.estimatedTokens.toLocaleString("en-US")} est. tokens)`,
+    `Transport: ${report.target.transport}  |  Protocol: ${report.server.protocolVersion ?? "n/a"}  |  Tools: ${report.context.toolCount} (${formatTokenText(report)})`,
   );
   lines.push("");
 
@@ -81,7 +88,7 @@ export function formatMarkdownSummary(report: AuditReport): string {
     `<tr><th>Server</th><td><code>${escapeHtml(serverLabel)}</code></td></tr>`,
     `<tr><th>Transport</th><td><code>${escapeHtml(report.target.transport)}</code></td></tr>`,
     `<tr><th>Protocol</th><td><code>${escapeHtml(report.server.protocolVersion ?? "n/a")}</code></td></tr>`,
-    `<tr><th>Tools &amp; Context</th><td>${report.context.toolCount} tools (~${report.context.estimatedTokens.toLocaleString("en-US")} est. tokens, ${(report.context.totalBytes / 1024).toFixed(1)} KiB)</td></tr>`,
+    `<tr><th>Tools &amp; Context</th><td>${report.context.toolCount} tools (${escapeHtml(formatTokenText(report))}, ${(report.context.totalBytes / 1024).toFixed(1)} KiB)</td></tr>`,
     `<tr><th>Duration</th><td>${report.durationMs} ms</td></tr>`,
     "</tbody></table>",
   ];

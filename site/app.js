@@ -72,10 +72,14 @@ function renderCard(entry) {
   );
 
   const toolLabel = r.context.toolCount === 1 ? "1 tool" : `${r.context.toolCount} tools`;
+  const tokLabel =
+    r.context.tokenizer === "bytes4"
+      ? `~${r.context.estimatedTokens.toLocaleString("en-US")} est. tokens`
+      : `${r.context.estimatedTokens.toLocaleString("en-US")} tokens (o200k)`;
   const tokenMeta = el(
     "div",
     "token-meta",
-    `${toolLabel} · ~${r.context.estimatedTokens.toLocaleString("en-US")} est. tokens · ${(r.context.totalBytes / 1024).toFixed(1)} KiB`,
+    `${toolLabel} · ${tokLabel} · ${(r.context.totalBytes / 1024).toFixed(1)} KiB`,
   );
 
   row2.append(providers, tokenMeta);
@@ -97,7 +101,7 @@ function renderCard(entry) {
         fill.style.width = `${Math.max(4, Math.round((tool.estimatedTokens / maxTok) * 100))}%`;
         track.append(fill);
         row.append(track);
-        row.append(el("span", "bar-val", `~${tool.estimatedTokens} tok`));
+        row.append(el("span", "bar-val", `${r.context.tokenizer === "bytes4" ? "~" : ""}${tool.estimatedTokens} tok`));
         box.append(row);
       }
       body.append(box);
