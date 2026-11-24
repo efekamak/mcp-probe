@@ -1,5 +1,80 @@
 const SAFE_SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
+export function toolNamesOf(entry) {
+  const ctx = entry?.report?.context;
+  const list = Array.isArray(ctx?.tools) && ctx.tools.length > 0
+    ? ctx.tools
+    : Array.isArray(ctx?.heaviestTools)
+      ? ctx.heaviestTools
+      : [];
+  return list
+    .map((t) => (t && typeof t.name === "string" ? t.name : ""))
+    .filter((name) => name.length > 0);
+}
+
+export function buildSearchHaystack(entry) {
+  return [
+    entry?.name ?? "",
+    entry?.package ?? "",
+    entry?.id ?? "",
+    ...toolNamesOf(entry),
+  ]
+    .join("\n")
+    .toLowerCase();
+}
+
+export function matchesEntry(entry, state, precomputedHaystack) {
+  const st = entry?.report?.status ?? "";
+  const statusOk =
+    state.status === "all" ||
+    st === state.status ||
+    (state.status === "failed" && st === "error");
+  if (!statusOk) return false;
+
+  const transport = entry?.report?.target?.transport ?? "";
+  if (state.transport !== "all" && transport !== state.transport) {
+    return false;
+  }
+
+  const q = (state.query ?? "").trim().toLowerCase();
+  if (q.length > 0) {
+    const haystack = precomputedHaystack ?? buildSearchHaystack(entry);
+    if (!haystack.includes(q)) return false;
+  }
+
+  return true;
+}
+
+export function compareEntries(a, b, sortMode) {
+  const tieBreak = () => {
+    const byName = String(a?.name ?? "").localeCompare(String(b?.name ?? ""), undefined, {
+      sensitivity: "base",
+    });
+    if (byName !== 0) return byName;
+    return String(a?.id ?? "").localeCompare(String(b?.id ?? ""));
+  };
+
+  if (sortMode === "score-desc") {
+    const d = (b?.report?.score ?? 0) - (a?.report?.score ?? 0);
+    return d !== 0 ? d : tieBreak();
+  }
+  if (sortMode === "tokens-desc") {
+    const d =
+      (b?.report?.context?.estimatedTokens ?? 0) - (a?.report?.context?.estimatedTokens ?? 0);
+    return d !== 0 ? d : tieBreak();
+  }
+  if (sortMode === "tools-desc") {
+    const d = (b?.report?.context?.toolCount ?? 0) - (a?.report?.context?.toolCount ?? 0);
+    return d !== 0 ? d : tieBreak();
+  }
+  if (sortMode === "name-asc") {
+    return tieBreak();
+  }
+  // Default: score-asc (lowest score first)
+  const d = (a?.report?.score ?? 0) - (b?.report?.score ?? 0);
+  return d !== 0 ? d : tieBreak();
+}
+
 function safeHttpsUrl(candidate) {
   if (typeof candidate !== "string") return null;
   try {
@@ -143,7 +218,8 @@ function renderCard(entry) {
   const links = el("div", "body-links");
   const safeRepoUrl = safeHttpsUrl(entry.repositoryUrl);
   if (safeRepoUrl) {
-    const repoA = el("a", "", "Repository ↗");
+    const isGithub = safeRepoUrl.startsWith("https://github.com/");
+    const repoA = el("a", "", isGithub ? "Repository ↗" : "Official Docs ↗");
     repoA.href = safeRepoUrl;
     repoA.target = "_blank";
     repoA.rel = "noopener noreferrer";
@@ -193,29 +269,80 @@ async function init() {
     statChip(s.totalTools, "TOTAL TOOLS"),
   );
 
-  const container = document.getElementById("cards");
-  const sorted = [...data.entries].sort((a, b) => a.report.score - b.report.score);
-  const cardNodes = sorted.map(renderCard);
-  container.replaceChildren(...cardNodes);
+  const items = data.entries.map((entry) => ({
+    entry,
+    haystack: buildSearchHaystack(entry),
+    node: renderCard(entry),
+  }));
 
-  const buttons = Array.from(document.querySelectorAll(".filter-btn"));
-  for (const btn of buttons) {
+  const state = {
+    status: "all",
+    transport: "all",
+    query: "",
+    sort: "score-asc",
+  };
+
+  const container = document.getElementById("cards");
+  const countEl = document.getElementById("result-count");
+
+  function applyView() {
+    const matching = items
+      .filter((item) => matchesEntry(item.entry, state, item.haystack))
+      .sort((a, b) => compareEntries(a.entry, b.entry, state.sort));
+
+    if (matching.length === 0) {
+      container.replaceChildren(el("p", "empty", "No servers match."));
+    } else {
+      container.replaceChildren(...matching.map((item) => item.node));
+    }
+
+    if (countEl) {
+      countEl.textContent = `Showing ${matching.length} of ${items.length} servers`;
+    }
+  }
+
+  const statusButtons = Array.from(document.querySelectorAll("#filters .filter-btn"));
+  for (const btn of statusButtons) {
     btn.addEventListener("click", () => {
-      for (const b of buttons) b.classList.remove("is-active");
+      for (const b of statusButtons) b.classList.remove("is-active");
       btn.classList.add("is-active");
-      const mode = btn.dataset.filter;
-      for (const node of cardNodes) {
-        const st = node.dataset.status;
-        const show =
-          mode === "all" ||
-          st === mode ||
-          (mode === "failed" && st === "error");
-        node.style.display = show ? "" : "none";
-      }
+      state.status = btn.dataset.filter ?? "all";
+      applyView();
     });
   }
+
+  const transportButtons = Array.from(document.querySelectorAll("#transport-filters .filter-btn"));
+  for (const btn of transportButtons) {
+    btn.addEventListener("click", () => {
+      for (const b of transportButtons) b.classList.remove("is-active");
+      btn.classList.add("is-active");
+      state.transport = btn.dataset.transport ?? "all";
+      applyView();
+    });
+  }
+
+  const searchInput = document.getElementById("search");
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      state.query = searchInput.value;
+      applyView();
+    });
+  }
+
+  const sortSelect = document.getElementById("sort");
+  if (sortSelect) {
+    sortSelect.addEventListener("change", () => {
+      state.sort = sortSelect.value;
+      applyView();
+    });
+  }
+
+  applyView();
 }
 
-init().catch((err) => {
-  document.getElementById("run-meta").textContent = `Failed to load scorecard: ${err}`;
-});
+if (typeof document !== "undefined") {
+  init().catch((err) => {
+    const meta = document.getElementById("run-meta");
+    if (meta) meta.textContent = `Failed to load scorecard: ${err}`;
+  });
+}

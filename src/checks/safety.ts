@@ -143,6 +143,12 @@ export function runSafetyChecks(
     if (typeof tool.title === "string") texts.push(tool.title);
     if (typeof tool.description === "string") texts.push(tool.description);
     if (tool.inputSchema) collectSchemaTextFields(tool.inputSchema, 0, texts);
+    if (tool.outputSchema) collectSchemaTextFields(tool.outputSchema, 0, texts);
+    if (tool.annotations && typeof tool.annotations === "object" && !Array.isArray(tool.annotations)) {
+      for (const val of Object.values(tool.annotations as Record<string, unknown>)) {
+        if (typeof val === "string" && val.length > 0) texts.push(val);
+      }
+    }
     scanTextSurface(typeof tool.name === "string" ? tool.name : "(unknown)", texts.join("\n"), findings);
   }
 

@@ -137,6 +137,7 @@ export function runContextChecks(
       missingDescriptions,
       missingAnnotations,
       heaviestTools,
+      tools: entries,
     },
     checks,
   };

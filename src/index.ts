@@ -1,5 +1,20 @@
 export { probeMcpServer, TOOL_VERSION } from "./runner.js";
-export { formatMarkdownSummary, formatTerminalReport } from "./format.js";
+export {
+  formatMarkdownDiff,
+  formatMarkdownSummary,
+  formatTerminalDiff,
+  formatTerminalReport,
+} from "./format.js";
+export {
+  diffAuditReports,
+  isValidAuditReport,
+  type AuditDiff,
+  type CheckDelta,
+  type DiffReason,
+  type ProviderDelta,
+  type SafetyDelta,
+  type ToolDelta,
+} from "./diff.js";
 export { toSarifReport, type SarifLog } from "./sarif.js";
 export { runSchemaChecks } from "./checks/schema.js";
 export { runContextChecks, estimateTokens } from "./checks/context.js";

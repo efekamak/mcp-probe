@@ -103,6 +103,7 @@ export type ContextBudgetSummary = {
   missingDescriptions: number;
   missingAnnotations: number;
   heaviestTools: ToolTokenEntry[];
+  tools?: ToolTokenEntry[];
 };
 
 export type SafetyFinding = {

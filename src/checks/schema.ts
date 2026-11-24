@@ -391,5 +391,100 @@ export function runSchemaChecks(
     });
   }
 
+  // Static MCP 2025-06-18 outputSchema validation (silent/pass when omitted).
+  const outputSchemaIssues: string[] = [];
+  let declaredOutputSchemas = 0;
+  for (const tool of tools) {
+    const out: unknown = tool.outputSchema;
+    if (out === undefined) continue;
+    declaredOutputSchemas += 1;
+    if (!out || typeof out !== "object" || Array.isArray(out)) {
+      outputSchemaIssues.push(`${tool.name}: outputSchema must be a JSON Schema object.`);
+      continue;
+    }
+    const obj = out as Record<string, unknown>;
+    if (obj.type !== "object") {
+      outputSchemaIssues.push(
+        `${tool.name}: outputSchema.type must be "object" (got ${JSON.stringify(obj.type)}).`,
+      );
+    }
+    if (
+      obj.properties !== undefined &&
+      (!obj.properties || typeof obj.properties !== "object" || Array.isArray(obj.properties))
+    ) {
+      outputSchemaIssues.push(`${tool.name}: outputSchema.properties must be an object when present.`);
+    }
+    if (
+      obj.required !== undefined &&
+      (!Array.isArray(obj.required) || !obj.required.every((item) => typeof item === "string"))
+    ) {
+      outputSchemaIssues.push(`${tool.name}: outputSchema.required must be an array of strings.`);
+    }
+  }
+  checks.push({
+    id: "schema.output-schema",
+    category: "schema",
+    title: "MCP outputSchema is an object schema",
+    status: tools.length === 0 ? "skip" : outputSchemaIssues.length > 0 ? "fail" : "pass",
+    summary:
+      tools.length === 0
+        ? "No tools exposed to check."
+        : declaredOutputSchemas === 0
+          ? "No tools declare outputSchema (optional in MCP 2025-03-26)."
+          : outputSchemaIssues.length === 0
+            ? `All ${declaredOutputSchemas} declared outputSchema definition(s) are valid object schemas.`
+            : `${outputSchemaIssues.length} invalid outputSchema definition(s) across ${declaredOutputSchemas} declared tool(s).`,
+    details: outputSchemaIssues.slice(0, 8),
+  });
+
+  // Static MCP tool annotation type validation (pass when omitted or well-typed).
+  const annotationTypeIssues: string[] = [];
+  const BOOLEAN_ANNOTATION_KEYS = [
+    "readOnlyHint",
+    "destructiveHint",
+    "idempotentHint",
+    "openWorldHint",
+  ] as const;
+  let declaredAnnotations = 0;
+  for (const tool of tools) {
+    const ann: unknown = tool.annotations;
+    if (ann === undefined) continue;
+    declaredAnnotations += 1;
+    if (!ann || typeof ann !== "object" || Array.isArray(ann)) {
+      annotationTypeIssues.push(
+        `${tool.name}: annotations must be an object (got ${Array.isArray(ann) ? "array" : typeof ann}).`,
+      );
+      continue;
+    }
+    const obj = ann as Record<string, unknown>;
+    if (obj.title !== undefined && typeof obj.title !== "string") {
+      annotationTypeIssues.push(
+        `${tool.name}: annotations.title must be a string (got ${typeof obj.title}).`,
+      );
+    }
+    for (const key of BOOLEAN_ANNOTATION_KEYS) {
+      if (obj[key] !== undefined && typeof obj[key] !== "boolean") {
+        annotationTypeIssues.push(
+          `${tool.name}: annotations.${key} must be a boolean (got ${obj[key] === null ? "null" : typeof obj[key]}).`,
+        );
+      }
+    }
+  }
+  checks.push({
+    id: "schema.annotation-types",
+    category: "schema",
+    title: "MCP tool annotation types",
+    status: tools.length === 0 ? "skip" : annotationTypeIssues.length > 0 ? "fail" : "pass",
+    summary:
+      tools.length === 0
+        ? "No tools exposed to check."
+        : declaredAnnotations === 0
+          ? "No tool annotation objects declared."
+          : annotationTypeIssues.length === 0
+            ? `All ${declaredAnnotations} declared tool annotation object(s) use valid MCP types.`
+            : `${annotationTypeIssues.length} invalid tool annotation type error(s).`,
+    details: annotationTypeIssues.slice(0, 8),
+  });
+
   return { providers, checks };
 }

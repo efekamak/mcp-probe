@@ -8,7 +8,7 @@ type CatalogStdioServer = {
   id: string;
   name: string;
   package: string;
-  repositoryUrl: string;
+  repositoryUrl?: string | null;
   transport: "stdio";
   command: string;
   args: string[];
@@ -18,7 +18,7 @@ type CatalogHttpServer = {
   id: string;
   name: string;
   package: string;
-  repositoryUrl: string;
+  repositoryUrl?: string | null;
   transport: "http";
   url: string;
 };
@@ -34,7 +34,7 @@ export type ScorecardEntry = {
   id: string;
   name: string;
   package: string;
-  repositoryUrl: string;
+  repositoryUrl: string | null;
   report: AuditReport;
 };
 
@@ -94,6 +94,7 @@ async function probeEntry(srv: CatalogServer): Promise<ScorecardEntry> {
         cursor: { provider: "cursor", compatible: true, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
       },
       context: {
+        tokenizer: "o200k_base",
         toolCount: 0,
         promptCount: 0,
         resourceCount: 0,
@@ -102,6 +103,7 @@ async function probeEntry(srv: CatalogServer): Promise<ScorecardEntry> {
         missingDescriptions: 0,
         missingAnnotations: 0,
         heaviestTools: [],
+        tools: [],
       },
       safety: { passed: true, errors: 0, warnings: 0, findings: [] },
       fatalError: null,
@@ -110,7 +112,7 @@ async function probeEntry(srv: CatalogServer): Promise<ScorecardEntry> {
       id: srv.id,
       name: srv.name,
       package: srv.package,
-      repositoryUrl: srv.repositoryUrl,
+      repositoryUrl: srv.repositoryUrl ?? null,
       report: dummyReport,
     };
   }
@@ -140,7 +142,7 @@ async function probeEntry(srv: CatalogServer): Promise<ScorecardEntry> {
     id: srv.id,
     name: srv.name,
     package: srv.package,
-    repositoryUrl: srv.repositoryUrl,
+    repositoryUrl: srv.repositoryUrl ?? null,
     report,
   };
 }

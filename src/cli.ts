@@ -3,11 +3,19 @@ import { realpathSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatMarkdownSummary, formatTerminalReport } from "./format.js";
+import {
+  formatMarkdownDiff,
+  formatMarkdownSummary,
+  formatTerminalDiff,
+  formatTerminalReport,
+} from "./format.js";
+import { diffAuditReports, isValidAuditReport } from "./diff.js";
 import { probeMcpServer, TOOL_VERSION } from "./runner.js";
 import { scrubText } from "./sanitize.js";
 import { toSarifReport } from "./sarif.js";
-import type { GeminiSchemaMode, ProbeTarget, TokenizerMode } from "./types.js";
+import type { AuditReport, GeminiSchemaMode, ProbeTarget, TokenizerMode } from "./types.js";
+
+const MAX_DIFF_REPORT_BYTES = 8 * 1024 * 1024;
 
 function printHelp(): void {
   process.stdout.write(`mcp-probe v${TOOL_VERSION}
@@ -18,6 +26,7 @@ context budget, and tool-poisoning audit for MCP servers.
 Usage:
   mcp-probe --stdio -- <command> [args...]
   mcp-probe --http <url> [options]
+  mcp-probe diff <base.json> <head.json> [--json | --markdown] [--max-token-delta <n>]
 
 Options:
   --stdio                       Connect to an MCP server over stdio (put command after --)
@@ -261,8 +270,159 @@ export function parseCliArgs(argv: string[]): { ok: true; value: ParsedCliArgs }
   return { ok: false, exitCode: 2, message: "Specify either --stdio -- <cmd> or --http <url>." };
 }
 
+export type ParsedDiffArgs = {
+  basePath: string;
+  headPath: string;
+  json: boolean;
+  markdown: boolean;
+  maxTokenDelta: number | null;
+};
+
+export function parseDiffArgs(
+  argv: string[],
+): { ok: true; value: ParsedDiffArgs } | { ok: false; exitCode: number; message: string } {
+  let json = false;
+  let markdown = false;
+  let maxTokenDelta: number | null = null;
+  const positional: string[] = [];
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "-h" || arg === "--help") {
+      return { ok: false, exitCode: 0, message: "DIFF_HELP" };
+    }
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+    if (arg === "--markdown") {
+      markdown = true;
+      continue;
+    }
+    if (arg === "--max-token-delta") {
+      const raw = argv[++i] ?? "";
+      const parsed = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1_000_000) {
+        return {
+          ok: false,
+          exitCode: 2,
+          message: "--max-token-delta must be an integer between 0 and 1000000.",
+        };
+      }
+      maxTokenDelta = parsed;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      return { ok: false, exitCode: 2, message: `Unknown diff argument: ${arg}` };
+    }
+    positional.push(arg);
+  }
+
+  if (json && markdown) {
+    return {
+      ok: false,
+      exitCode: 2,
+      message: "Specify at most one stdout format flag (--json or --markdown).",
+    };
+  }
+  if (positional.length !== 2) {
+    return {
+      ok: false,
+      exitCode: 2,
+      message: "Usage: mcp-probe diff <base.json> <head.json> [--json | --markdown] [--max-token-delta <n>]",
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      basePath: positional[0],
+      headPath: positional[1],
+      json,
+      markdown,
+      maxTokenDelta,
+    },
+  };
+}
+
+async function readReportFile(filePath: string, label: string): Promise<AuditReport> {
+  const resolved = path.resolve(filePath);
+  const stat = await fs.stat(resolved);
+  if (!stat.isFile()) {
+    throw new Error(`${label} report path is not a regular file.`);
+  }
+  if (stat.size > MAX_DIFF_REPORT_BYTES) {
+    throw new Error(`${label} report exceeds ${MAX_DIFF_REPORT_BYTES}-byte limit.`);
+  }
+  const raw = await fs.readFile(resolved, "utf8");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`Invalid JSON in ${label} report: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!isValidAuditReport(parsed)) {
+    throw new Error(`${label} report does not match mcp-probe AuditReport schemaVersion 1.`);
+  }
+  return parsed;
+}
+
+async function runDiffCli(argv: string[]): Promise<void> {
+  const parsed = parseDiffArgs(argv);
+  if (!parsed.ok) {
+    if (parsed.message === "DIFF_HELP") {
+      process.stdout.write(
+        "Usage:\n  mcp-probe diff <base.json> <head.json> [--json | --markdown] [--max-token-delta <n>]\n",
+      );
+      process.exitCode = 0;
+      return;
+    }
+    process.stderr.write(`error: ${parsed.message}\n`);
+    process.exitCode = parsed.exitCode;
+    return;
+  }
+
+  const { basePath, headPath, json, markdown, maxTokenDelta } = parsed.value;
+  const [base, head] = await Promise.all([
+    readReportFile(basePath, "base"),
+    readReportFile(headPath, "head"),
+  ]);
+
+  const baseTok = base.context.tokenizer ?? "o200k_base";
+  const headTok = head.context.tokenizer ?? "o200k_base";
+  if (maxTokenDelta !== null && baseTok !== headTok) {
+    process.stderr.write(
+      `error: --max-token-delta cannot be applied (tokenizer mismatch: base=${baseTok}, head=${headTok}).\n`,
+    );
+    process.exitCode = 2;
+    return;
+  }
+
+  const diff = diffAuditReports(
+    base,
+    head,
+    maxTokenDelta !== null ? { maxTokenDelta } : undefined,
+  );
+
+  if (json) {
+    process.stdout.write(`${JSON.stringify(diff, null, 2)}\n`);
+  } else if (markdown) {
+    process.stdout.write(formatMarkdownDiff(diff));
+  } else {
+    process.stdout.write(formatTerminalDiff(diff));
+  }
+
+  process.exitCode = diff.regression ? 1 : 0;
+}
+
 async function main(): Promise<void> {
-  const parsed = parseCliArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv[0] === "diff") {
+    await runDiffCli(argv.slice(1));
+    return;
+  }
+
+  const parsed = parseCliArgs(argv);
   if (!parsed.ok) {
     if (parsed.message === "HELP") {
       printHelp();

@@ -2,6 +2,54 @@
   "schemaVersion": 1,
   "servers": [
     {
+      "id": "openai-docs-mcp",
+      "name": "OpenAI Docs MCP",
+      "package": "developers.openai.com",
+      "repositoryUrl": "https://developers.openai.com/learn/docs-mcp",
+      "transport": "http",
+      "url": "https://developers.openai.com/mcp"
+    },
+    {
+      "id": "claude-code-docs-mcp",
+      "name": "Claude Code Docs MCP",
+      "package": "code.claude.com",
+      "repositoryUrl": "https://code.claude.com/docs",
+      "transport": "http",
+      "url": "https://code.claude.com/docs/mcp"
+    },
+    {
+      "id": "claude-platform-docs-mcp",
+      "name": "Claude Platform Docs MCP",
+      "package": "platform.claude.com",
+      "repositoryUrl": "https://platform.claude.com/docs",
+      "transport": "http",
+      "url": "https://platform.claude.com/docs/mcp"
+    },
+    {
+      "id": "mcp-spec-docs-mcp",
+      "name": "Model Context Protocol Docs",
+      "package": "modelcontextprotocol.io",
+      "repositoryUrl": "https://github.com/modelcontextprotocol/modelcontextprotocol",
+      "transport": "http",
+      "url": "https://modelcontextprotocol.io/mcp"
+    },
+    {
+      "id": "google-developer-knowledge-mcp",
+      "name": "Google Developer Knowledge MCP",
+      "package": "developerknowledge.googleapis.com",
+      "repositoryUrl": "https://developers.google.com/",
+      "transport": "http",
+      "url": "https://developerknowledge.googleapis.com/mcp"
+    },
+    {
+      "id": "aws-knowledge-mcp",
+      "name": "AWS Knowledge MCP",
+      "package": "knowledge-mcp.global.api.aws",
+      "repositoryUrl": "https://github.com/awslabs/mcp",
+      "transport": "http",
+      "url": "https://knowledge-mcp.global.api.aws"
+    },
+    {
       "id": "cloudflare-docs-mcp",
       "name": "Cloudflare Docs MCP",
       "package": "docs.mcp.cloudflare.com",
@@ -16,6 +64,38 @@
       "repositoryUrl": "https://github.com/MicrosoftDocs/mcp",
       "transport": "http",
       "url": "https://learn.microsoft.com/api/mcp"
+    },
+    {
+      "id": "huggingface-mcp",
+      "name": "Hugging Face Hub MCP",
+      "package": "huggingface.co/mcp",
+      "repositoryUrl": "https://github.com/huggingface/hf-mcp-server",
+      "transport": "http",
+      "url": "https://huggingface.co/mcp"
+    },
+    {
+      "id": "firecrawl-mcp",
+      "name": "Firecrawl MCP",
+      "package": "mcp.firecrawl.dev",
+      "repositoryUrl": "https://github.com/firecrawl/firecrawl-mcp-server",
+      "transport": "http",
+      "url": "https://mcp.firecrawl.dev/v2/mcp"
+    },
+    {
+      "id": "langchain-docs-mcp",
+      "name": "LangChain Docs MCP",
+      "package": "docs.langchain.com",
+      "repositoryUrl": "https://github.com/langchain-ai/docs",
+      "transport": "http",
+      "url": "https://docs.langchain.com/mcp"
+    },
+    {
+      "id": "langfuse-docs-mcp",
+      "name": "Langfuse Docs MCP",
+      "package": "langfuse.com/api/mcp",
+      "repositoryUrl": "https://github.com/langfuse/langfuse-docs",
+      "transport": "http",
+      "url": "https://langfuse.com/api/mcp"
     },
     {
       "id": "deepwiki-mcp",
@@ -42,12 +122,44 @@
       "url": "https://mcp.exa.ai/mcp"
     },
     {
-      "id": "langfuse-docs-mcp",
-      "name": "Langfuse Docs MCP",
-      "package": "langfuse.com/api/mcp",
-      "repositoryUrl": "https://github.com/langfuse/langfuse-docs",
+      "id": "svelte-mcp",
+      "name": "Svelte MCP",
+      "package": "mcp.svelte.dev",
+      "repositoryUrl": "https://github.com/sveltejs/ai-tools",
       "transport": "http",
-      "url": "https://langfuse.com/api/mcp"
+      "url": "https://mcp.svelte.dev/mcp"
+    },
+    {
+      "id": "bun-docs-mcp",
+      "name": "Bun Docs MCP",
+      "package": "bun.com/docs/mcp",
+      "repositoryUrl": "https://github.com/oven-sh/bun",
+      "transport": "http",
+      "url": "https://bun.com/docs/mcp"
+    },
+    {
+      "id": "neon-docs-mcp",
+      "name": "Neon Docs MCP",
+      "package": "neon.tech/docs/mcp",
+      "repositoryUrl": "https://github.com/neondatabase/website",
+      "transport": "http",
+      "url": "https://neon.tech/docs/mcp"
+    },
+    {
+      "id": "astro-docs-mcp",
+      "name": "Astro Docs MCP",
+      "package": "mcp.docs.astro.build",
+      "repositoryUrl": "https://github.com/withastro/docs-mcp",
+      "transport": "http",
+      "url": "https://mcp.docs.astro.build/mcp"
+    },
+    {
+      "id": "nuxt-docs-mcp",
+      "name": "Nuxt Docs MCP",
+      "package": "nuxt.com/mcp",
+      "repositoryUrl": "https://github.com/nuxt/nuxt",
+      "transport": "http",
+      "url": "https://nuxt.com/mcp"
     },
     {
       "id": "playwright-mcp",

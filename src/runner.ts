@@ -118,6 +118,7 @@ export async function probeMcpServer(
           missingDescriptions: 0,
           missingAnnotations: 0,
           heaviestTools: [],
+          tools: [],
         },
         safety: {
           passed: true,

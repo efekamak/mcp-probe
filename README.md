@@ -22,11 +22,12 @@ Connects directly to any MCP server over **stdio** or **Streamable HTTP** (`appl
    - **Anthropic (Claude):** tool name regex `^[a-zA-Z0-9_-]{1,128}$`, root `type: "object"`, descriptions
    - **Google Gemini:** tool name regex, root `type: "object"`, array `items`, top-level combinators, plus warnings (or hard failures under `--gemini-mode parameters`) for legacy `FunctionDeclaration.parameters` OpenAPI 3.0 restrictions (union `type` arrays, `$ref`, `$defs`, `oneOf`, `allOf`, `not`, `const`, `patternProperties`, `exclusiveMinimum`/`exclusiveMaximum`, `$schema`, `additionalProperties`, nested `anyOf`)
    - **Cursor:** tool name limits, 40-tool active budget warning, MCP safety annotations (`readOnlyHint`, `destructiveHint`)
+   - **MCP 2025-06-18 static checks:** validates declared `outputSchema` object structure (`schema.output-schema`) and `annotations` hint field types (`schema.annotation-types`) without penalizing `2025-03-26` servers that omit them
 3. **Context & token budget**
    - Serialized UTF-8 byte size and deterministic `o200k_base` BPE token count (or fast `ceil(bytes / 4)` via `--tokenizer bytes4`) of `tools/list` injected on every model turn, heaviest tools breakdown, missing or oversized descriptions, and missing MCP annotations
 4. **Tool-poisoning & error hygiene**
    - Flags invisible zero-width / BiDi Unicode characters (`U+200B..200F`, `U+202A..202E`, `U+2060..206F`, `U+FEFF`)
-   - Flags prompt-injection directives (`ignore previous instructions`, `do not tell the user`, `<IMPORTANT>`, `<system>`, sensitive credential file references, cross-tool shadowing phrases)
+   - Flags prompt-injection directives (`ignore previous instructions`, `do not tell the user`, `<IMPORTANT>`, `<system>`, sensitive credential file references, cross-tool shadowing phrases) across tool/prompt/resource metadata, `inputSchema`, `outputSchema`, and string `annotations`
    - Flags unredacted secret patterns or host user filesystem paths leaked in server error responses
 
 ## CLI usage
@@ -44,9 +45,13 @@ npx mcp-probe --http http://127.0.0.1:3000/mcp
 # Emit JSON, SARIF 2.1.0 (for GitHub Code Scanning), or Markdown summary
 npx mcp-probe --stdio --sarif --sarif-out mcp-probe.sarif -- node ./dist/server.js
 npx mcp-probe --stdio --json --strict -- node ./dist/server.js
+
+# Diff two audit reports in CI (exits 1 on score drop, new failures/errors, or token delta)
+npx mcp-probe diff base-report.json head-report.json --max-token-delta 500
+npx mcp-probe diff base-report.json head-report.json --markdown
 ```
 
-Exit codes: `0` passed (or warned without `--strict`), `1` failed (or warned with `--strict`), `2` usage or connection error.
+Exit codes: `0` passed (or warned without `--strict`), `1` failed (or warned with `--strict`, or regression in `diff`), `2` usage or connection error.
 
 ## Use as a GitHub Action
 
@@ -69,7 +74,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: efekamak/mcp-probe@v0.3.2
+      - uses: efekamak/mcp-probe@v0.4.0
         with:
           command: node
           args: '["dist/server.js"]'

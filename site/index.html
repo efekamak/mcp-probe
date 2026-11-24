@@ -27,16 +27,38 @@
       </header>
 
       <section class="controls">
-        <div class="filters" id="filters">
+        <label class="visually-hidden" for="search">Search servers or tools</label>
+        <input
+          id="search"
+          type="search"
+          class="scorecard-search"
+          placeholder="Search name, package, or tool"
+          autocomplete="off"
+        />
+        <div class="filters" id="transport-filters" role="group" aria-label="Transport">
+          <button type="button" class="filter-btn is-active" data-transport="all">All</button>
+          <button type="button" class="filter-btn" data-transport="http">HTTP</button>
+          <button type="button" class="filter-btn" data-transport="stdio">stdio</button>
+        </div>
+        <div class="filters" id="filters" role="group" aria-label="Status">
           <button type="button" class="filter-btn is-active" data-filter="all">All</button>
           <button type="button" class="filter-btn" data-filter="failed">Failed</button>
           <button type="button" class="filter-btn" data-filter="warned">Warned</button>
           <button type="button" class="filter-btn" data-filter="passed">Passed</button>
         </div>
+        <label class="visually-hidden" for="sort">Sort servers</label>
+        <select id="sort" class="sort-select" aria-label="Sort servers">
+          <option value="score-asc" selected>Lowest score first</option>
+          <option value="score-desc">Highest score first</option>
+          <option value="tokens-desc">Most tokens</option>
+          <option value="tools-desc">Most tools</option>
+          <option value="name-asc">Name A-Z</option>
+        </select>
         <a class="repo-link" href="https://github.com/efekamak/mcp-probe" target="_blank" rel="noopener noreferrer">
           Source &amp; GitHub Action ↗
         </a>
       </section>
+      <p id="result-count" class="result-count"></p>
 
       <section id="cards" class="cards"></section>
 
