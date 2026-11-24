@@ -30,6 +30,7 @@ const LOCAL_PATH_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
 ];
 
 export function stripAnsi(text: string): string {
+  if (typeof text !== "string") return "";
   return text.replace(ANSI_REGEX, "");
 }
 

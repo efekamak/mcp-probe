@@ -22,11 +22,23 @@ function looksLikeHtml(body: string, contentType?: string): boolean {
   return trimmed.startsWith("<!doctype") || trimmed.startsWith("<html") || trimmed.includes("<pre>");
 }
 
+function getJsonRpcError(res: RawProbeResult): { code: number; message: string } | null {
+  const err: unknown = res.parsed?.error;
+  if (!err || typeof err !== "object" || Array.isArray(err)) return null;
+  const rec = err as { code?: unknown; message?: unknown };
+  if (typeof rec.code !== "number") return null;
+  return {
+    code: rec.code,
+    message: typeof rec.message === "string" ? rec.message : "",
+  };
+}
+
 function summarizeRaw(res: RawProbeResult): string {
   if (res.transportError) return `transport error: ${scrubText(res.transportError, 180)}`;
   if (res.timedOut) return "no response before timeout";
-  if (res.parsed?.error) {
-    return `JSON-RPC error ${res.parsed.error.code}: ${scrubText(res.parsed.error.message, 160)}`;
+  const rpcErr = getJsonRpcError(res);
+  if (rpcErr) {
+    return `JSON-RPC error ${rpcErr.code}: ${scrubText(rpcErr.message, 160)}`;
   }
   if (res.httpStatus !== undefined) {
     return `HTTP ${res.httpStatus} (${res.contentType || "unknown"}): ${scrubText(res.rawBody, 160)}`;
@@ -300,7 +312,8 @@ export async function runProtocolChecks(
     Math.min(stepTimeoutMs, 5000),
   );
   if (unknownMethodRes.rawBody) rawErrorBodies.push(unknownMethodRes.rawBody);
-  if (unknownMethodRes.parsed?.error?.code === -32601) {
+  const unknownMethodErr = getJsonRpcError(unknownMethodRes);
+  if (unknownMethodErr?.code === -32601) {
     checks.push({
       id: "protocol.unknown-method",
       category: "protocol",
@@ -308,13 +321,13 @@ export async function runProtocolChecks(
       status: "pass",
       summary: "Returned JSON-RPC -32601 (Method not found).",
     });
-  } else if (unknownMethodRes.parsed?.error) {
+  } else if (unknownMethodErr) {
     checks.push({
       id: "protocol.unknown-method",
       category: "protocol",
       title: "Unknown method returns JSON-RPC -32601",
       status: "warn",
-      summary: `Expected -32601, got ${unknownMethodRes.parsed.error.code} (${scrubText(unknownMethodRes.parsed.error.message, 100)}).`,
+      summary: `Expected -32601, got ${unknownMethodErr.code} (${scrubText(unknownMethodErr.message, 100)}).`,
     });
   } else {
     checks.push({
@@ -334,8 +347,9 @@ export async function runProtocolChecks(
       Math.min(stepTimeoutMs, 10_000),
     );
     if (unknownToolRes.rawBody) rawErrorBodies.push(unknownToolRes.rawBody);
+    const unknownToolErr = getJsonRpcError(unknownToolRes);
     const isToolError =
-      Boolean(unknownToolRes.parsed?.error) ||
+      Boolean(unknownToolErr) ||
       Boolean(
         unknownToolRes.parsed?.result &&
           typeof unknownToolRes.parsed.result === "object" &&
@@ -347,8 +361,8 @@ export async function runProtocolChecks(
       title: "Unknown tool call handled cleanly",
       status: isToolError ? "pass" : "fail",
       summary: isToolError
-        ? unknownToolRes.parsed?.error
-          ? `Returned JSON-RPC error ${unknownToolRes.parsed.error.code}.`
+        ? unknownToolErr
+          ? `Returned JSON-RPC error ${unknownToolErr.code}.`
           : "Returned tool result with isError: true."
         : `Expected error or isError: true, got ${summarizeRaw(unknownToolRes)}.`,
     });
@@ -362,7 +376,8 @@ export async function runProtocolChecks(
     negTimeout,
   );
   if (invalidReqRes.rawBody) rawErrorBodies.push(invalidReqRes.rawBody);
-  if (invalidReqRes.parsed?.error?.code === -32600) {
+  const invalidReqErr = getJsonRpcError(invalidReqRes);
+  if (invalidReqErr?.code === -32600) {
     checks.push({
       id: "protocol.invalid-jsonrpc",
       category: "protocol",
@@ -378,13 +393,13 @@ export async function runProtocolChecks(
       status: "fail",
       summary: "Returned HTML error page instead of JSON-RPC -32600.",
     });
-  } else if (invalidReqRes.parsed?.error) {
+  } else if (invalidReqErr) {
     checks.push({
       id: "protocol.invalid-jsonrpc",
       category: "protocol",
       title: "Invalid JSON-RPC request returns -32600",
       status: "fail",
-      summary: `Returned JSON-RPC ${invalidReqRes.parsed.error.code} instead of -32600 (${scrubText(invalidReqRes.parsed.error.message, 100)}).`,
+      summary: `Returned JSON-RPC ${invalidReqErr.code} instead of -32600 (${scrubText(invalidReqErr.message, 100)}).`,
     });
   } else if (invalidReqRes.timedOut && transport.kind === "stdio") {
     checks.push({
@@ -408,7 +423,8 @@ export async function runProtocolChecks(
   if (transport.kind === "http") {
     const emptyBatchRes = await transport.sendRawJson([], null, negTimeout);
     if (emptyBatchRes.rawBody) rawErrorBodies.push(emptyBatchRes.rawBody);
-    if (emptyBatchRes.parsed?.error?.code === -32600) {
+    const emptyBatchErr = getJsonRpcError(emptyBatchRes);
+    if (emptyBatchErr?.code === -32600) {
       checks.push({
         id: "protocol.empty-batch",
         category: "protocol",
@@ -424,13 +440,13 @@ export async function runProtocolChecks(
         status: "fail",
         summary: "Returned HTML error page for empty JSON-RPC batch [].",
       });
-    } else if (emptyBatchRes.parsed?.error) {
+    } else if (emptyBatchErr) {
       checks.push({
         id: "protocol.empty-batch",
         category: "protocol",
         title: "Empty JSON-RPC batch rejected with -32600",
         status: "warn",
-        summary: `Rejected empty batch [] with JSON-RPC ${emptyBatchRes.parsed.error.code} instead of -32600.`,
+        summary: `Rejected empty batch [] with JSON-RPC ${emptyBatchErr.code} instead of -32600.`,
       });
     } else {
       checks.push({
@@ -446,7 +462,8 @@ export async function runProtocolChecks(
   // 7. Malformed JSON -> -32700 (never HTML / crash)
   const malformedRes = await transport.sendRawText("{not valid json", negTimeout);
   if (malformedRes.rawBody) rawErrorBodies.push(malformedRes.rawBody);
-  if (malformedRes.parsed?.error?.code === -32700) {
+  const malformedErr = getJsonRpcError(malformedRes);
+  if (malformedErr?.code === -32700) {
     checks.push({
       id: "protocol.malformed-json",
       category: "protocol",
@@ -462,13 +479,13 @@ export async function runProtocolChecks(
       status: "fail",
       summary: "Returned HTML error response (possible stack trace leak) instead of JSON-RPC -32700.",
     });
-  } else if (malformedRes.parsed?.error) {
+  } else if (malformedErr) {
     checks.push({
       id: "protocol.malformed-json",
       category: "protocol",
       title: "Malformed JSON returns -32700",
       status: "warn",
-      summary: `Returned JSON-RPC ${malformedRes.parsed.error.code} instead of -32700.`,
+      summary: `Returned JSON-RPC ${malformedErr.code} instead of -32700.`,
     });
   } else if (malformedRes.timedOut && transport.kind === "stdio") {
     checks.push({

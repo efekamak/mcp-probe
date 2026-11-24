@@ -326,6 +326,26 @@ describe("mcp-probe Streamable HTTP audit", () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
+
+  it("handles non-JSON-RPC string error JSON bodies (e.g. HTTP 500 {\"error\":\"Internal server error\"}) without crashing", async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "Internal server error" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("Failed to bind server");
+    try {
+      const report = await probeMcpServer(
+        { transport: "http", url: `http://127.0.0.1:${addr.port}/mcp` },
+        { stepTimeoutMs: 5_000 },
+      );
+      assert.equal(report.status, "error");
+      assert.match(report.fatalError ?? "", /HTTP 500/);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 });
 
 describe("CLI parsing and bundled GitHub Action", () => {

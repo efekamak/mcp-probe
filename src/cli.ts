@@ -259,12 +259,14 @@ async function main(): Promise<void> {
   }
 
   if (report.status === "error") {
-    process.exit(2);
+    process.exitCode = 2;
+    return;
   }
   if (report.status === "failed" || (strict && report.status === "warned")) {
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
-  process.exit(0);
+  process.exitCode = 0;
 }
 
 function isDirectCliExecution(): boolean {
