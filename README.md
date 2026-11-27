@@ -53,6 +53,28 @@ npx mcp-probe diff base-report.json head-report.json --markdown
 
 Exit codes: `0` passed (or warned without `--strict`), `1` failed (or warned with `--strict`, or regression in `diff`), `2` usage or connection error.
 
+### Diff gates: token budget vs breaking tool parameters
+
+`mcp-probe diff` treats token-budget jumps (`--max-token-delta`) and tool-contract compatibility as separate gates so a breaking argument change cannot hide behind a flat token count:
+
+```text
+# 1. Breaking change with 0 token delta (exits 1 even with --max-token-delta 500)
+#    `search_docs` changed `scope` from optional to required
+mcp-probe diff v0.4.2  |  REGRESSION (breaking-tool-schema)
+Score: 92 (A) -> 92 (A) [0]  |  Tools: 0  |  Tokens: 0  |  Bytes: 0
+
+Breaking tool schema changes:
+  [FAIL] search_docs (+required: scope)
+
+# 2. Non-breaking optional addition (exits 0 when within --max-token-delta)
+#    `search_docs` added optional `limit` parameter
+mcp-probe diff v0.4.2  |  OK
+Score: 92 (A) -> 92 (A) [0]  |  Tools: 0  |  Tokens: +12  |  Bytes: +48
+
+Tool changes:
+  [~MOD] search_docs (200 -> 212 tokens, +12)
+```
+
 ## Use as a GitHub Action
 
 ```yaml
