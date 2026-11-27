@@ -91,6 +91,8 @@ export type ToolTokenEntry = {
   estimatedTokens: number;
   hasDescription: boolean;
   hasAnnotations: boolean;
+  requiredParams?: string[];
+  paramNames?: string[];
 };
 
 export type ContextBudgetSummary = {

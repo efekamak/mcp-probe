@@ -46,7 +46,7 @@ npx mcp-probe --http http://127.0.0.1:3000/mcp
 npx mcp-probe --stdio --sarif --sarif-out mcp-probe.sarif -- node ./dist/server.js
 npx mcp-probe --stdio --json --strict -- node ./dist/server.js
 
-# Diff two audit reports in CI (exits 1 on score drop, new failures/errors, or token delta)
+# Diff two audit reports in CI (exits 1 on score drop, new failures/errors, breaking required/removed params, or token delta)
 npx mcp-probe diff base-report.json head-report.json --max-token-delta 500
 npx mcp-probe diff base-report.json head-report.json --markdown
 ```
@@ -74,7 +74,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: efekamak/mcp-probe@v0.4.0
+      - uses: efekamak/mcp-probe@v0.4.1
         with:
           command: node
           args: '["dist/server.js"]'

@@ -40,12 +40,27 @@ export function runContextChecks(
         !Array.isArray(tool.annotations) &&
         Object.keys(tool.annotations).length > 0,
     );
+    const schema =
+      tool.inputSchema && typeof tool.inputSchema === "object" && !Array.isArray(tool.inputSchema)
+        ? (tool.inputSchema as Record<string, unknown>)
+        : null;
+    const rawRequired = schema && Array.isArray(schema.required) ? schema.required : [];
+    const requiredParams = [
+      ...new Set(rawRequired.filter((item): item is string => typeof item === "string" && item.length > 0)),
+    ].sort();
+    const rawProps =
+      schema && schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties)
+        ? Object.keys(schema.properties as Record<string, unknown>)
+        : [];
+    const paramNames = [...new Set(rawProps.filter((k) => k.length > 0))].sort();
     return {
       name: tool.name,
       bytes,
       estimatedTokens: estimateTokens(serialized, tokenizer),
       hasDescription,
       hasAnnotations,
+      requiredParams,
+      paramNames,
     };
   });
 

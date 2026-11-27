@@ -1104,6 +1104,113 @@ describe("mcp-probe diff", () => {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("flags breaking required/removed parameter changes even when token budget and score stay flat", () => {
+    // Companion review fixture: two catalogs with identical token/byte counts and score,
+    // differing only in required arguments / removed parameter on existing tools.
+    const baseCtx = runContextChecks([
+      {
+        name: "search_docs",
+        description: "Search documentation.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            scope: { type: "string" },
+          },
+          required: ["query"],
+        },
+        annotations: { readOnlyHint: true },
+      },
+      {
+        name: "get_item",
+        description: "Fetch an item.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            format: { type: "string" },
+          },
+          required: ["id"],
+        },
+        annotations: { readOnlyHint: true },
+      },
+    ]);
+    assert.deepEqual(baseCtx.context.tools?.[0]?.requiredParams, ["query"]);
+    assert.deepEqual(baseCtx.context.tools?.[0]?.paramNames, ["query", "scope"]);
+
+    const base = makeReportFixture({
+      context: {
+        ...baseCtx.context,
+        estimatedTokens: 200,
+        totalBytes: 800,
+      },
+    });
+
+    // Head catalog: exact same token count & score, but `scope` became required on search_docs
+    // and `format` was removed from get_item.
+    const breakingHead = makeReportFixture({
+      context: {
+        ...base.context,
+        estimatedTokens: 200,
+        totalBytes: 800,
+        tools: [
+          {
+            ...base.context.tools![0],
+            requiredParams: ["query", "scope"],
+            paramNames: ["query", "scope"],
+          },
+          {
+            ...base.context.tools![1],
+            requiredParams: ["id"],
+            paramNames: ["id"],
+          },
+        ],
+      },
+    });
+
+    const breakingDiff = diffAuditReports(base, breakingHead, { maxTokenDelta: 500 });
+    assert.equal(breakingDiff.estimatedTokensDelta, 0);
+    assert.equal(breakingDiff.scoreDelta, 0);
+    assert.equal(breakingDiff.regression, true);
+    assert.deepEqual(breakingDiff.reasons, ["breaking-tool-schema"]);
+    assert.deepEqual(breakingDiff.breakingToolChanges, [
+      { tool: "get_item", addedRequiredParams: [], removedParams: ["format"] },
+      { tool: "search_docs", addedRequiredParams: ["scope"], removedParams: [] },
+    ]);
+    // Equal-token tools with breaking schema changes must still appear under tools.modified.
+    assert.deepEqual(
+      breakingDiff.tools.modified.map((t) => t.name),
+      ["get_item", "search_docs"],
+    );
+
+    const term = formatTerminalDiff(breakingDiff);
+    assert.match(term, /Breaking tool schema changes:/);
+    assert.match(term, /\+required: scope/);
+    assert.match(term, /-param: format/);
+    const md = formatMarkdownDiff(breakingDiff);
+    assert.match(md, /<h4>Breaking tool schema changes<\/h4>/);
+    assert.match(md, /\+required: scope/);
+
+    // Adding a purely optional parameter or relaxing a required param is non-breaking.
+    const nonBreakingHead = makeReportFixture({
+      context: {
+        ...base.context,
+        tools: [
+          {
+            ...base.context.tools![0],
+            requiredParams: [],
+            paramNames: ["limit", "query", "scope"],
+          },
+          base.context.tools![1],
+        ],
+      },
+    });
+    const nonBreakingDiff = diffAuditReports(base, nonBreakingHead);
+    assert.equal(nonBreakingDiff.regression, false);
+    assert.equal(nonBreakingDiff.breakingToolChanges.length, 0);
+    assert.deepEqual(nonBreakingDiff.tools.modified.map((t) => t.name), ["search_docs"]);
+  });
 });
 
 describe("MCP 2025-06-18 static checks and scorecard UI helpers", () => {

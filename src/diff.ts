@@ -12,8 +12,15 @@ export type DiffReason =
   | "new-failure"
   | "new-safety-error"
   | "new-provider-error"
+  | "breaking-tool-schema"
   | "token-delta"
   | "head-error";
+
+export type BreakingToolChange = {
+  tool: string;
+  addedRequiredParams: string[];
+  removedParams: string[];
+};
 
 export type ToolDelta = {
   name: string;
@@ -74,6 +81,7 @@ export type AuditDiff = {
   resolvedProviderErrors: ProviderDelta[];
   newSafetyErrors: SafetyDelta[];
   resolvedSafetyErrors: SafetyDelta[];
+  breakingToolChanges: BreakingToolChange[];
 };
 
 const VALID_GRADES = new Set<string>(["A", "B", "C", "D", "F"]);
@@ -285,6 +293,18 @@ export function diffAuditReports(
   const added: ToolDelta[] = [];
   const removed: ToolDelta[] = [];
   const modified: ToolDelta[] = [];
+  const breakingToolChanges: BreakingToolChange[] = [];
+
+  const toCleanStringList = (list: unknown): string[] | null => {
+    if (!Array.isArray(list)) return null;
+    return [...new Set(list.filter((x): x is string => typeof x === "string" && x.length > 0))].sort();
+  };
+
+  const listsDiffer = (a: string[] | null, b: string[] | null): boolean => {
+    if (!a || !b) return false;
+    if (a.length !== b.length) return true;
+    return a.some((v, idx) => v !== b[idx]);
+  };
 
   if (hasFullInventory) {
     const baseTools = toToolMap(base.context.tools!);
@@ -302,21 +322,43 @@ export function diffAuditReports(
           baseBytes: null,
           headBytes: ht.bytes,
         });
-      } else if (
-        bt.estimatedTokens !== ht.estimatedTokens ||
-        bt.bytes !== ht.bytes ||
-        bt.hasDescription !== ht.hasDescription ||
-        bt.hasAnnotations !== ht.hasAnnotations
-      ) {
-        modified.push({
-          name,
-          change: "modified",
-          baseTokens: bt.estimatedTokens,
-          headTokens: ht.estimatedTokens,
-          tokenDelta: ht.estimatedTokens - bt.estimatedTokens,
-          baseBytes: bt.bytes,
-          headBytes: ht.bytes,
-        });
+      } else {
+        const baseReq = toCleanStringList(bt.requiredParams);
+        const headReq = toCleanStringList(ht.requiredParams);
+        const baseParams = toCleanStringList(bt.paramNames);
+        const headParams = toCleanStringList(ht.paramNames);
+
+        const addedRequiredParams =
+          baseReq && headReq ? headReq.filter((p) => !baseReq.includes(p)) : [];
+        const removedParams =
+          baseParams && headParams ? baseParams.filter((p) => !headParams.includes(p)) : [];
+
+        if (addedRequiredParams.length > 0 || removedParams.length > 0) {
+          breakingToolChanges.push({
+            tool: name,
+            addedRequiredParams,
+            removedParams,
+          });
+        }
+
+        if (
+          bt.estimatedTokens !== ht.estimatedTokens ||
+          bt.bytes !== ht.bytes ||
+          bt.hasDescription !== ht.hasDescription ||
+          bt.hasAnnotations !== ht.hasAnnotations ||
+          listsDiffer(baseReq, headReq) ||
+          listsDiffer(baseParams, headParams)
+        ) {
+          modified.push({
+            name,
+            change: "modified",
+            baseTokens: bt.estimatedTokens,
+            headTokens: ht.estimatedTokens,
+            tokenDelta: ht.estimatedTokens - bt.estimatedTokens,
+            baseBytes: bt.bytes,
+            headBytes: ht.bytes,
+          });
+        }
       }
     }
 
@@ -337,6 +379,7 @@ export function diffAuditReports(
     added.sort((a, b) => a.name.localeCompare(b.name));
     removed.sort((a, b) => a.name.localeCompare(b.name));
     modified.sort((a, b) => a.name.localeCompare(b.name));
+    breakingToolChanges.sort((a, b) => a.tool.localeCompare(b.tool));
   }
 
   // Regression gating reasons
@@ -346,6 +389,7 @@ export function diffAuditReports(
   if (newFailures.length > 0) reasons.push("new-failure");
   if (newSafetyErrors.length > 0) reasons.push("new-safety-error");
   if (newProviderErrors.length > 0) reasons.push("new-provider-error");
+  if (breakingToolChanges.length > 0) reasons.push("breaking-tool-schema");
   if (
     options?.maxTokenDelta !== undefined &&
     tokenDeltaComparable &&
@@ -377,5 +421,6 @@ export function diffAuditReports(
     resolvedProviderErrors,
     newSafetyErrors,
     resolvedSafetyErrors,
+    breakingToolChanges,
   };
 }

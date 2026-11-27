@@ -196,6 +196,21 @@ export function formatTerminalDiff(diff: AuditDiff): string {
     lines.push("");
   }
 
+  if (diff.breakingToolChanges.length > 0) {
+    lines.push("Breaking tool schema changes:");
+    for (const b of diff.breakingToolChanges) {
+      const parts: string[] = [];
+      if (b.addedRequiredParams.length > 0) {
+        parts.push(`+required: ${b.addedRequiredParams.join(", ")}`);
+      }
+      if (b.removedParams.length > 0) {
+        parts.push(`-param: ${b.removedParams.join(", ")}`);
+      }
+      lines.push(`  [FAIL] ${b.tool} (${parts.join("; ")})`);
+    }
+    lines.push("");
+  }
+
   if (diff.resolvedFailures.length > 0) {
     lines.push("Resolved failures:");
     for (const c of diff.resolvedFailures) {
@@ -264,6 +279,23 @@ export function formatMarkdownDiff(diff: AuditDiff): string {
     for (const s of diff.newSafetyErrors) {
       lines.push(
         `<li><strong>${escapeHtml(s.tool ?? "(server)")} (${escapeHtml(s.rule)}):</strong> <code>${escapeHtml(s.message)}</code></li>`,
+      );
+    }
+    lines.push("</ul>");
+  }
+
+  if (diff.breakingToolChanges.length > 0) {
+    lines.push("<h4>Breaking tool schema changes</h4><ul>");
+    for (const b of diff.breakingToolChanges) {
+      const parts: string[] = [];
+      if (b.addedRequiredParams.length > 0) {
+        parts.push(`+required: ${b.addedRequiredParams.join(", ")}`);
+      }
+      if (b.removedParams.length > 0) {
+        parts.push(`-param: ${b.removedParams.join(", ")}`);
+      }
+      lines.push(
+        `<li><strong>${escapeHtml(b.tool)}:</strong> <code>${escapeHtml(parts.join("; "))}</code></li>`,
       );
     }
     lines.push("</ul>");

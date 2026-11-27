@@ -9,6 +9,7 @@ export {
   diffAuditReports,
   isValidAuditReport,
   type AuditDiff,
+  type BreakingToolChange,
   type CheckDelta,
   type DiffReason,
   type ProviderDelta,
