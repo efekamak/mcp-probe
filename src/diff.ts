@@ -103,7 +103,13 @@ export function isValidAuditReport(candidate: unknown): candidate is AuditReport
   for (const chk of r.checks) {
     if (!chk || typeof chk !== "object" || Array.isArray(chk)) return false;
     const c = chk as Record<string, unknown>;
-    if (typeof c.id !== "string" || typeof c.status !== "string" || !VALID_CHECK_STATUSES.has(c.status)) {
+    if (
+      typeof c.id !== "string" ||
+      typeof c.title !== "string" ||
+      typeof c.summary !== "string" ||
+      typeof c.status !== "string" ||
+      !VALID_CHECK_STATUSES.has(c.status)
+    ) {
       return false;
     }
   }
@@ -113,7 +119,21 @@ export function isValidAuditReport(candidate: unknown): candidate is AuditReport
   for (const id of PROVIDER_IDS) {
     const p = provs[id];
     if (!p || typeof p !== "object" || Array.isArray(p)) return false;
-    if (!Array.isArray((p as Record<string, unknown>).issues)) return false;
+    const issues = (p as Record<string, unknown>).issues;
+    if (!Array.isArray(issues)) return false;
+    for (const issue of issues) {
+      if (!issue || typeof issue !== "object" || Array.isArray(issue)) return false;
+      const rec = issue as Record<string, unknown>;
+      if (
+        typeof rec.tool !== "string" ||
+        typeof rec.rule !== "string" ||
+        typeof rec.message !== "string" ||
+        (rec.severity !== "fail" && rec.severity !== "warn") ||
+        (rec.path !== undefined && typeof rec.path !== "string")
+      ) {
+        return false;
+      }
+    }
   }
 
   if (!r.context || typeof r.context !== "object" || Array.isArray(r.context)) return false;
@@ -129,12 +149,38 @@ export function isValidAuditReport(candidate: unknown): candidate is AuditReport
   ) {
     return false;
   }
-  if (ctx.tools !== undefined && !Array.isArray(ctx.tools)) {
-    return false;
+  if (ctx.tools !== undefined) {
+    if (!Array.isArray(ctx.tools)) return false;
+    for (const entry of ctx.tools) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+      const t = entry as Record<string, unknown>;
+      if (
+        typeof t.name !== "string" ||
+        typeof t.bytes !== "number" ||
+        !Number.isFinite(t.bytes) ||
+        typeof t.estimatedTokens !== "number" ||
+        !Number.isFinite(t.estimatedTokens)
+      ) {
+        return false;
+      }
+    }
   }
 
   if (!r.safety || typeof r.safety !== "object" || Array.isArray(r.safety)) return false;
-  if (!Array.isArray((r.safety as Record<string, unknown>).findings)) return false;
+  const findings = (r.safety as Record<string, unknown>).findings;
+  if (!Array.isArray(findings)) return false;
+  for (const f of findings) {
+    if (!f || typeof f !== "object" || Array.isArray(f)) return false;
+    const rec = f as Record<string, unknown>;
+    if (
+      (rec.tool !== null && typeof rec.tool !== "string") ||
+      typeof rec.rule !== "string" ||
+      typeof rec.message !== "string" ||
+      (rec.severity !== "fail" && rec.severity !== "warn")
+    ) {
+      return false;
+    }
+  }
 
   return true;
 }
@@ -142,7 +188,17 @@ export function isValidAuditReport(candidate: unknown): candidate is AuditReport
 function toToolMap(entries: ToolTokenEntry[]): Map<string, ToolTokenEntry> {
   const map = new Map<string, ToolTokenEntry>();
   for (const entry of entries) {
-    if (!entry || typeof entry.name !== "string" || map.has(entry.name)) continue;
+    if (
+      !entry ||
+      typeof entry.name !== "string" ||
+      typeof entry.estimatedTokens !== "number" ||
+      !Number.isFinite(entry.estimatedTokens) ||
+      typeof entry.bytes !== "number" ||
+      !Number.isFinite(entry.bytes) ||
+      map.has(entry.name)
+    ) {
+      continue;
+    }
     map.set(entry.name, entry);
   }
   return map;

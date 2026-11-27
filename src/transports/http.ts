@@ -2,13 +2,19 @@ import type { HttpTarget } from "../types.js";
 import type { JsonRpcResponse, ProbeTransport, RawProbeResult } from "./types.js";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
+
+function matchesJsonRpcId(actual: unknown, expectId: number | null): boolean {
+  if (expectId === null) return true;
+  return actual === expectId || (typeof actual === "string" && actual === String(expectId));
+}
 
 function parseSseForJsonRpc(body: string, expectId: number | null): JsonRpcResponse | null {
-  const events = body.split(/\r?\n\r?\n/);
+  const events = body.split(/\r\n\r\n|\n\r\n|\n\n|\r\r/);
   let fallback: JsonRpcResponse | null = null;
   for (const event of events) {
     const dataLines = event
-      .split(/\r?\n/)
+      .split(/\r\n|\n|\r/)
       .filter((line) => line.startsWith("data:"))
       .map((line) => line.slice(5).trimStart());
     if (dataLines.length === 0) continue;
@@ -17,7 +23,7 @@ function parseSseForJsonRpc(body: string, expectId: number | null): JsonRpcRespo
     try {
       const parsed = JSON.parse(joined) as JsonRpcResponse;
       if (parsed && typeof parsed === "object") {
-        if (expectId !== null && parsed.id === expectId) {
+        if (expectId !== null && matchesJsonRpcId(parsed.id, expectId)) {
           return parsed;
         }
         if (parsed.result !== undefined || parsed.error !== undefined) {
@@ -32,12 +38,21 @@ function parseSseForJsonRpc(body: string, expectId: number | null): JsonRpcRespo
 }
 
 function findLastSseBoundaryEnd(text: string): number {
-  const lf = text.lastIndexOf("\n\n");
-  const crlf = text.lastIndexOf("\r\n\r\n");
-  if (lf === -1 && crlf === -1) return -1;
-  const lfEnd = lf === -1 ? -1 : lf + 2;
-  const crlfEnd = crlf === -1 ? -1 : crlf + 4;
-  return Math.max(lfEnd, crlfEnd);
+  const candidates = [
+    ["\r\n\r\n", 4],
+    ["\n\r\n", 3],
+    ["\n\n", 2],
+    ["\r\r", 2],
+  ] as const;
+  let best = -1;
+  for (const [sep, len] of candidates) {
+    const idx = text.lastIndexOf(sep);
+    if (idx !== -1) {
+      const end = idx + len;
+      if (end > best) best = end;
+    }
+  }
+  return best;
 }
 
 async function readBoundedResponse(
@@ -81,7 +96,7 @@ async function readBoundedResponse(
           const candidate = parseSseForJsonRpc(sseText.slice(sseParseOffset, boundaryEnd), expectId);
           sseParseOffset = boundaryEnd;
           if (candidate) {
-            if (expectId === null || candidate.id === expectId) {
+            if (matchesJsonRpcId(candidate.id, expectId)) {
               await reader.cancel().catch(() => {});
               return { rawBody: sseText, sseParsed: candidate };
             }
@@ -141,23 +156,69 @@ export class HttpProbeTransport implements ProbeTransport {
     }
   }
 
-  private buildHeaders(): Headers {
+  private buildHeaders(includeTargetHeaders: boolean = true): Headers {
     const headers = new Headers({
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
     });
-    if (this.target.headers) {
+    if (includeTargetHeaders && this.target.headers) {
       for (const [key, value] of Object.entries(this.target.headers)) {
         headers.set(key, value);
       }
     }
-    if (this.sessionId) {
+    if (includeTargetHeaders && this.sessionId) {
       headers.set("mcp-session-id", this.sessionId);
     }
     if (this.protocolVersion) {
       headers.set("mcp-protocol-version", this.protocolVersion);
     }
     return headers;
+  }
+
+  private async fetchWithSafeRedirects(
+    method: "POST" | "DELETE",
+    bodyText: string | undefined,
+    signal: AbortSignal,
+  ): Promise<Response> {
+    const initialOrigin = new URL(this.target.url).origin;
+    let currentUrl = this.target.url;
+    let currentMethod: "POST" | "DELETE" | "GET" = method;
+    let currentBody: string | undefined = bodyText;
+
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      const sameOrigin = new URL(currentUrl).origin === initialOrigin;
+      const res = await fetch(currentUrl, {
+        method: currentMethod,
+        headers: this.buildHeaders(sameOrigin),
+        ...(currentBody !== undefined ? { body: currentBody } : {}),
+        redirect: "manual",
+        signal,
+      });
+
+      const isRedirect =
+        res.status === 301 ||
+        res.status === 302 ||
+        res.status === 303 ||
+        res.status === 307 ||
+        res.status === 308;
+      const location = isRedirect ? res.headers.get("location") : null;
+      if (!location || hop === MAX_REDIRECTS) {
+        return res;
+      }
+
+      await res.body?.cancel().catch(() => {});
+      const nextUrl = new URL(location, currentUrl);
+      if (nextUrl.protocol !== "http:" && nextUrl.protocol !== "https:") {
+        throw new Error(`Unsupported redirect protocol "${nextUrl.protocol}".`);
+      }
+      currentUrl = nextUrl.href;
+      if (res.status === 303 || ((res.status === 301 || res.status === 302) && currentMethod === "POST")) {
+        currentMethod = "GET";
+        currentBody = undefined;
+      }
+    }
+
+    throw new Error("Too many HTTP redirects.");
   }
 
   private async postBody(
@@ -169,12 +230,7 @@ export class HttpProbeTransport implements ProbeTransport {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const res = await fetch(this.target.url, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: bodyText,
-        signal: controller.signal,
-      });
+      const res = await this.fetchWithSafeRedirects("POST", bodyText, controller.signal);
 
       const sid = res.headers.get("mcp-session-id");
       if (sid && !this.sessionId) {
@@ -306,11 +362,9 @@ export class HttpProbeTransport implements ProbeTransport {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 3000);
-      const res = await fetch(this.target.url, {
-        method: "DELETE",
-        headers: this.buildHeaders(),
-        signal: controller.signal,
-      }).finally(() => clearTimeout(timer));
+      const res = await this.fetchWithSafeRedirects("DELETE", undefined, controller.signal).finally(
+        () => clearTimeout(timer),
+      );
       await res.body?.cancel().catch(() => {});
     } catch {
       // Best-effort session teardown.

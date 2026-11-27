@@ -164,22 +164,23 @@ export async function resolveStdioCommand(
   command: string,
   args: string[],
 ): Promise<{ execPath: string; execArgs: string[] }> {
-  if (command === "node") {
+  const lower = command.toLowerCase();
+  if (lower === "node" || (process.platform === "win32" && lower === "node.exe")) {
     return { execPath: await findPreferredNode(), execArgs: args };
   }
-  if (command === "npm") {
+  if (lower === "npm" || (process.platform === "win32" && lower === "npm.cmd")) {
     const nodePath = await findPreferredNode();
     const cli = await findNpmBinScript(nodePath, "npm-cli.js");
     if (cli) return { execPath: nodePath, execArgs: [cli, ...args] };
     return { execPath: "npm", execArgs: args };
   }
-  if (command === "npx") {
+  if (lower === "npx" || (process.platform === "win32" && lower === "npx.cmd")) {
     const nodePath = await findPreferredNode();
     const cli = await findNpmBinScript(nodePath, "npx-cli.js");
     if (cli) return { execPath: nodePath, execArgs: [cli, ...args] };
     return { execPath: "npx", execArgs: args };
   }
-  if (command === "python" || command === "python3") {
+  if (lower === "python" || lower === "python3") {
     const found =
       (await findExecutableOnPath(process.platform === "win32" ? "python" : "python3")) ??
       (await findExecutableOnPath("python"));
@@ -233,13 +234,30 @@ function killProcessTree(pid: number | undefined): void {
   if (pid === undefined) return;
   if (process.platform === "win32") {
     try {
-      const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+      const taskkillPath = path.join(
+        process.env.SystemRoot || "C:\\Windows",
+        "System32",
+        "taskkill.exe",
+      );
+      const killer = spawn(taskkillPath, ["/PID", String(pid), "/T", "/F"], {
+        env: buildSafeChildEnv(),
         shell: false,
         stdio: "ignore",
       });
+      killer.on("error", () => {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // Process already exited.
+        }
+      });
       killer.unref();
     } catch {
-      // Best-effort cleanup.
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // Best-effort cleanup.
+      }
     }
     return;
   }

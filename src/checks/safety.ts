@@ -1,4 +1,4 @@
-import { detectSecretOrPathLeak, scrubText } from "../sanitize.js";
+import { detectSecretOrPathLeak, scrubText, stripAnsi } from "../sanitize.js";
 import type { CheckResult, McpPrompt, McpResource, McpTool, SafetyFinding, SafetySummary } from "../types.js";
 
 // Zero-width spaces, directional overrides, and invisible BOM characters often used in tool poisoning.
@@ -41,6 +41,7 @@ const WARN_SHADOWING_PATTERNS: Array<{ rule: string; regex: RegExp; label: strin
 ];
 
 const MAX_SCHEMA_TEXT_ITEMS = 2_000;
+const MAX_LIST_ITEMS_PER_FIELD = 64;
 
 function collectSchemaTextFields(node: unknown, depth: number, out: string[]): void {
   if (!node || typeof node !== "object" || depth > 12 || out.length >= MAX_SCHEMA_TEXT_ITEMS) return;
@@ -52,7 +53,16 @@ function collectSchemaTextFields(node: unknown, depth: number, out: string[]): v
     return;
   }
   const obj = node as Record<string, unknown>;
-  for (const strKey of ["description", "title", "default", "const"] as const) {
+  for (const strKey of [
+    "description",
+    "title",
+    "default",
+    "const",
+    "$comment",
+    "pattern",
+    "format",
+    "contentMediaType",
+  ] as const) {
     const val = obj[strKey];
     if (typeof val === "string" && val.length > 0 && out.length < MAX_SCHEMA_TEXT_ITEMS) {
       out.push(val);
@@ -61,10 +71,12 @@ function collectSchemaTextFields(node: unknown, depth: number, out: string[]): v
   for (const listKey of ["examples", "enum"] as const) {
     const list = obj[listKey];
     if (Array.isArray(list)) {
+      let taken = 0;
       for (const item of list) {
-        if (out.length >= MAX_SCHEMA_TEXT_ITEMS) break;
+        if (out.length >= MAX_SCHEMA_TEXT_ITEMS || taken >= MAX_LIST_ITEMS_PER_FIELD) break;
         if (typeof item === "string" && item.length > 0) {
           out.push(item);
+          taken += 1;
         }
       }
     }
@@ -82,6 +94,10 @@ function collectSchemaTextFields(node: unknown, depth: number, out: string[]): v
       k !== "title" &&
       k !== "default" &&
       k !== "const" &&
+      k !== "$comment" &&
+      k !== "pattern" &&
+      k !== "format" &&
+      k !== "contentMediaType" &&
       k !== "examples" &&
       k !== "enum" &&
       typeof v === "object" &&
@@ -93,7 +109,8 @@ function collectSchemaTextFields(node: unknown, depth: number, out: string[]): v
 }
 
 function scanTextSurface(entityLabel: string, combined: string, findings: SafetyFinding[]): void {
-  if (INVISIBLE_UNICODE_REGEX.test(combined)) {
+  const normalized = stripAnsi(combined);
+  if (INVISIBLE_UNICODE_REGEX.test(normalized)) {
     findings.push({
       tool: entityLabel,
       rule: "safety.invisible-unicode",
@@ -103,7 +120,7 @@ function scanTextSurface(entityLabel: string, combined: string, findings: Safety
   }
 
   for (const { rule, regex, label } of HIGH_RISK_INJECTION_PATTERNS) {
-    const m = combined.match(regex);
+    const m = normalized.match(regex);
     if (m) {
       findings.push({
         tool: entityLabel,
@@ -116,7 +133,7 @@ function scanTextSurface(entityLabel: string, combined: string, findings: Safety
   }
 
   for (const { rule, regex, label } of WARN_SHADOWING_PATTERNS) {
-    const m = combined.match(regex);
+    const m = normalized.match(regex);
     if (m) {
       findings.push({
         tool: entityLabel,

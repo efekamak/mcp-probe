@@ -57,6 +57,51 @@ function hasPathTraversal(uri: string): boolean {
   return /(?:^|[/\\])\.\.(?:[/\\]|$)/.test(decoded);
 }
 
+const MAX_LIST_PAGES = 10;
+
+async function fetchPaginatedList(
+  transport: ProbeTransport,
+  method: "tools/list" | "prompts/list" | "resources/list",
+  field: "tools" | "prompts" | "resources",
+  timeoutMs: number,
+): Promise<{
+  firstRes: RawProbeResult;
+  items: unknown[] | null;
+  failedRes: RawProbeResult | null;
+}> {
+  const firstRes = await transport.request(method, {}, timeoutMs);
+  if (!firstRes.received || !firstRes.parsed?.result || typeof firstRes.parsed.result !== "object") {
+    return { firstRes, items: null, failedRes: null };
+  }
+  const firstPage = (firstRes.parsed.result as Record<string, unknown>)[field];
+  if (!Array.isArray(firstPage)) {
+    return { firstRes, items: null, failedRes: null };
+  }
+
+  const allItems: unknown[] = [...firstPage];
+  const seenCursors = new Set<string>();
+  let nextCursor = (firstRes.parsed.result as { nextCursor?: unknown }).nextCursor;
+
+  for (let page = 1; page < MAX_LIST_PAGES; page += 1) {
+    if (typeof nextCursor !== "string" || nextCursor.length === 0 || seenCursors.has(nextCursor)) {
+      break;
+    }
+    seenCursors.add(nextCursor);
+    const pageRes = await transport.request(method, { cursor: nextCursor }, timeoutMs);
+    if (!pageRes.received || !pageRes.parsed?.result || typeof pageRes.parsed.result !== "object") {
+      return { firstRes, items: allItems, failedRes: pageRes };
+    }
+    const pageItems = (pageRes.parsed.result as Record<string, unknown>)[field];
+    if (!Array.isArray(pageItems)) {
+      return { firstRes, items: allItems, failedRes: pageRes };
+    }
+    allItems.push(...pageItems);
+    nextCursor = (pageRes.parsed.result as { nextCursor?: unknown }).nextCursor;
+  }
+
+  return { firstRes, items: allItems, failedRes: null };
+}
+
 export async function runProtocolChecks(
   transport: ProbeTransport,
   stepTimeoutMs: number,
@@ -156,36 +201,38 @@ export async function runProtocolChecks(
     // Handled by subsequent probes.
   }
 
-  // 2. tools/list
-  const listRes = await transport.request("tools/list", {}, stepTimeoutMs);
-  if (listRes.received && listRes.parsed?.result && typeof listRes.parsed.result === "object") {
-    const rawTools = (listRes.parsed.result as { tools?: unknown }).tools;
-    if (Array.isArray(rawTools)) {
-      tools = rawTools.filter((t): t is McpTool => Boolean(t && typeof t === "object" && typeof (t as { name?: unknown }).name === "string" && (t as { name: string }).name.length > 0));
-      const malformedTools = rawTools.length - tools.length;
-      const names = tools.map((t) => t.name);
-      const duplicates = names.filter((n, i) => names.indexOf(n) !== i);
-      checks.push({
-        id: "protocol.tools-list",
-        category: "protocol",
-        title: "tools/list response structure",
-        status: malformedTools === 0 && duplicates.length === 0 ? "pass" : "fail",
-        summary:
-          malformedTools > 0
+  // 2. tools/list (follows nextCursor pagination up to MAX_LIST_PAGES)
+  const toolsPage = await fetchPaginatedList(transport, "tools/list", "tools", stepTimeoutMs);
+  const listRes = toolsPage.firstRes;
+  if (toolsPage.items !== null) {
+    const rawTools = toolsPage.items;
+    tools = rawTools.filter((t): t is McpTool => Boolean(t && typeof t === "object" && typeof (t as { name?: unknown }).name === "string" && (t as { name: string }).name.length > 0));
+    const malformedTools = rawTools.length - tools.length;
+    const names = tools.map((t) => t.name);
+    const duplicates = names.filter((n, i) => names.indexOf(n) !== i);
+    if (toolsPage.failedRes?.rawBody) rawErrorBodies.push(toolsPage.failedRes.rawBody);
+    checks.push({
+      id: "protocol.tools-list",
+      category: "protocol",
+      title: "tools/list response structure",
+      status: !toolsPage.failedRes && malformedTools === 0 && duplicates.length === 0 ? "pass" : "fail",
+      summary:
+        toolsPage.failedRes
+          ? `tools/list pagination failed on subsequent page (${summarizeRaw(toolsPage.failedRes)}).`
+          : malformedTools > 0
             ? `Returned ${malformedTools} malformed tool entry/entries missing a non-empty string name.`
             : duplicates.length === 0
               ? `Returned ${tools.length} tool(s) with unique names.`
               : `Returned duplicate tool name(s): ${[...new Set(duplicates)].join(", ")}.`,
-      });
-    } else {
-      checks.push({
-        id: "protocol.tools-list",
-        category: "protocol",
-        title: "tools/list response structure",
-        status: "fail",
-        summary: "tools/list result did not contain a tools array.",
-      });
-    }
+    });
+  } else if (listRes.received && listRes.parsed?.result && typeof listRes.parsed.result === "object") {
+    checks.push({
+      id: "protocol.tools-list",
+      category: "protocol",
+      title: "tools/list response structure",
+      status: "fail",
+      summary: "tools/list result did not contain a tools array.",
+    });
   } else if (listRes.parsed?.error?.code === -32601 && !server.capabilities.includes("tools")) {
     checks.push({
       id: "protocol.tools-list",
@@ -207,37 +254,44 @@ export async function runProtocolChecks(
 
   // 2b. prompts/list (only when server advertises prompts capability)
   if (server.capabilities.includes("prompts")) {
-    const promptsRes = await transport.request("prompts/list", {}, Math.min(stepTimeoutMs, 8_000));
-    if (promptsRes.received && promptsRes.parsed?.result && typeof promptsRes.parsed.result === "object") {
-      const rawPrompts = (promptsRes.parsed.result as { prompts?: unknown }).prompts;
-      if (Array.isArray(rawPrompts)) {
-        prompts = rawPrompts.filter(
-          (p): p is McpPrompt => Boolean(p && typeof p === "object" && typeof (p as { name?: unknown }).name === "string" && (p as { name: string }).name.length > 0),
-        );
-        const malformedPrompts = rawPrompts.length - prompts.length;
-        const names = prompts.map((p) => p.name);
-        const dups = names.filter((n, i) => names.indexOf(n) !== i);
-        checks.push({
-          id: "protocol.prompts-list",
-          category: "protocol",
-          title: "prompts/list response structure",
-          status: malformedPrompts === 0 && dups.length === 0 ? "pass" : "fail",
-          summary:
-            malformedPrompts > 0
+    const promptsPage = await fetchPaginatedList(
+      transport,
+      "prompts/list",
+      "prompts",
+      Math.min(stepTimeoutMs, 8_000),
+    );
+    const promptsRes = promptsPage.firstRes;
+    if (promptsPage.items !== null) {
+      const rawPrompts = promptsPage.items;
+      prompts = rawPrompts.filter(
+        (p): p is McpPrompt => Boolean(p && typeof p === "object" && typeof (p as { name?: unknown }).name === "string" && (p as { name: string }).name.length > 0),
+      );
+      const malformedPrompts = rawPrompts.length - prompts.length;
+      const names = prompts.map((p) => p.name);
+      const dups = names.filter((n, i) => names.indexOf(n) !== i);
+      if (promptsPage.failedRes?.rawBody) rawErrorBodies.push(promptsPage.failedRes.rawBody);
+      checks.push({
+        id: "protocol.prompts-list",
+        category: "protocol",
+        title: "prompts/list response structure",
+        status: !promptsPage.failedRes && malformedPrompts === 0 && dups.length === 0 ? "pass" : "fail",
+        summary:
+          promptsPage.failedRes
+            ? `prompts/list pagination failed on subsequent page (${summarizeRaw(promptsPage.failedRes)}).`
+            : malformedPrompts > 0
               ? `Returned ${malformedPrompts} malformed prompt entry/entries missing a non-empty string name.`
               : dups.length === 0
                 ? `Returned ${prompts.length} prompt(s) with unique names.`
                 : `Returned duplicate prompt name(s): ${[...new Set(dups)].join(", ")}.`,
-        });
-      } else {
-        checks.push({
-          id: "protocol.prompts-list",
-          category: "protocol",
-          title: "prompts/list response structure",
-          status: "fail",
-          summary: "prompts/list result did not contain a prompts array.",
-        });
-      }
+      });
+    } else if (promptsRes.received && promptsRes.parsed?.result && typeof promptsRes.parsed.result === "object") {
+      checks.push({
+        id: "protocol.prompts-list",
+        category: "protocol",
+        title: "prompts/list response structure",
+        status: "fail",
+        summary: "prompts/list result did not contain a prompts array.",
+      });
     } else {
       if (promptsRes.rawBody) rawErrorBodies.push(promptsRes.rawBody);
       checks.push({
@@ -252,47 +306,54 @@ export async function runProtocolChecks(
 
   // 2c. resources/list (only when server advertises resources capability)
   if (server.capabilities.includes("resources")) {
-    const resList = await transport.request("resources/list", {}, Math.min(stepTimeoutMs, 8_000));
-    if (resList.received && resList.parsed?.result && typeof resList.parsed.result === "object") {
-      const rawResources = (resList.parsed.result as { resources?: unknown }).resources;
-      if (Array.isArray(rawResources)) {
-        resources = rawResources.filter(
-          (r): r is McpResource =>
-            Boolean(
-              r &&
-                typeof r === "object" &&
-                typeof (r as { uri?: unknown }).uri === "string" &&
-                (r as { uri: string }).uri.length > 0 &&
-                typeof (r as { name?: unknown }).name === "string" &&
-                (r as { name: string }).name.length > 0,
-            ),
-        );
-        const malformedResources = rawResources.length - resources.length;
-        const badUris = resources
-          .map((r) => r.uri)
-          .filter((uri) => !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(uri) || hasPathTraversal(uri));
-        checks.push({
-          id: "protocol.resources-list",
-          category: "protocol",
-          title: "resources/list URI structure",
-          status: malformedResources === 0 && badUris.length === 0 ? "pass" : "fail",
-          summary:
-            malformedResources > 0
+    const resourcesPage = await fetchPaginatedList(
+      transport,
+      "resources/list",
+      "resources",
+      Math.min(stepTimeoutMs, 8_000),
+    );
+    const resList = resourcesPage.firstRes;
+    if (resourcesPage.items !== null) {
+      const rawResources = resourcesPage.items;
+      resources = rawResources.filter(
+        (r): r is McpResource =>
+          Boolean(
+            r &&
+              typeof r === "object" &&
+              typeof (r as { uri?: unknown }).uri === "string" &&
+              (r as { uri: string }).uri.length > 0 &&
+              typeof (r as { name?: unknown }).name === "string" &&
+              (r as { name: string }).name.length > 0,
+          ),
+      );
+      const malformedResources = rawResources.length - resources.length;
+      const badUris = resources
+        .map((r) => r.uri)
+        .filter((uri) => !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(uri) || hasPathTraversal(uri));
+      if (resourcesPage.failedRes?.rawBody) rawErrorBodies.push(resourcesPage.failedRes.rawBody);
+      checks.push({
+        id: "protocol.resources-list",
+        category: "protocol",
+        title: "resources/list URI structure",
+        status: !resourcesPage.failedRes && malformedResources === 0 && badUris.length === 0 ? "pass" : "fail",
+        summary:
+          resourcesPage.failedRes
+            ? `resources/list pagination failed on subsequent page (${summarizeRaw(resourcesPage.failedRes)}).`
+            : malformedResources > 0
               ? `Returned ${malformedResources} malformed resource entry/entries missing uri or name.`
               : badUris.length === 0
                 ? `Returned ${resources.length} resource(s) with valid URIs.`
                 : `Found ${badUris.length} malformed or path-traversal resource URI(s).`,
-          details: badUris.slice(0, 5).map((u) => scrubText(u, 140)),
-        });
-      } else {
-        checks.push({
-          id: "protocol.resources-list",
-          category: "protocol",
-          title: "resources/list URI structure",
-          status: "fail",
-          summary: "resources/list result did not contain a resources array.",
-        });
-      }
+        details: badUris.slice(0, 5).map((u) => scrubText(u, 140)),
+      });
+    } else if (resList.received && resList.parsed?.result && typeof resList.parsed.result === "object") {
+      checks.push({
+        id: "protocol.resources-list",
+        category: "protocol",
+        title: "resources/list URI structure",
+        status: "fail",
+        summary: "resources/list result did not contain a resources array.",
+      });
     } else {
       if (resList.rawBody) rawErrorBodies.push(resList.rawBody);
       checks.push({

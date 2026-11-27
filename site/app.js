@@ -79,7 +79,9 @@ function safeHttpsUrl(candidate) {
   if (typeof candidate !== "string") return null;
   try {
     const parsed = new URL(candidate);
-    return parsed.protocol === "https:" ? parsed.href : null;
+    if (parsed.protocol !== "https:") return null;
+    if (parsed.username !== "" || parsed.password !== "") return null;
+    return parsed.href;
   } catch {
     return null;
   }
@@ -145,10 +147,14 @@ function renderCard(entry) {
     providerPill("Gemini", r.providers.gemini),
     providerPill("Cursor", r.providers.cursor),
   );
-  const safetyCls = r.safety.passed ? (r.safety.warnings > 0 ? "warn" : "pass") : "fail";
-  providers.append(
-    el("span", `pill ${safetyCls}`, `Safety ${r.safety.passed ? "✓" : "✕"}`),
-  );
+  if (r.status === "error") {
+    providers.append(el("span", "pill neutral", "Safety —"));
+  } else {
+    const safetyCls = r.safety.passed ? (r.safety.warnings > 0 ? "warn" : "pass") : "fail";
+    providers.append(
+      el("span", `pill ${safetyCls}`, `Safety ${r.safety.passed ? "✓" : "✕"}`),
+    );
+  }
 
   const toolLabel = r.context.toolCount === 1 ? "1 tool" : `${r.context.toolCount} tools`;
   const tokLabel =
@@ -171,7 +177,10 @@ function renderCard(entry) {
     if (r.context.heaviestTools && r.context.heaviestTools.length > 0) {
       const box = el("div", "heaviest-box");
       box.append(el("div", "heaviest-title", "Heaviest tools by context budget"));
-      const maxTok = Math.max(1, ...r.context.heaviestTools.map((t) => t.estimatedTokens));
+      const maxTok = r.context.heaviestTools.reduce(
+        (m, t) => Math.max(m, Number(t.estimatedTokens) || 0),
+        1,
+      );
       for (const tool of r.context.heaviestTools) {
         const row = el("div", "bar-row");
         row.append(el("span", "bar-name", tool.name));
@@ -304,8 +313,12 @@ async function init() {
   const statusButtons = Array.from(document.querySelectorAll("#filters .filter-btn"));
   for (const btn of statusButtons) {
     btn.addEventListener("click", () => {
-      for (const b of statusButtons) b.classList.remove("is-active");
+      for (const b of statusButtons) {
+        b.classList.remove("is-active");
+        b.setAttribute("aria-pressed", "false");
+      }
       btn.classList.add("is-active");
+      btn.setAttribute("aria-pressed", "true");
       state.status = btn.dataset.filter ?? "all";
       applyView();
     });
@@ -314,8 +327,12 @@ async function init() {
   const transportButtons = Array.from(document.querySelectorAll("#transport-filters .filter-btn"));
   for (const btn of transportButtons) {
     btn.addEventListener("click", () => {
-      for (const b of transportButtons) b.classList.remove("is-active");
+      for (const b of transportButtons) {
+        b.classList.remove("is-active");
+        b.setAttribute("aria-pressed", "false");
+      }
       btn.classList.add("is-active");
+      btn.setAttribute("aria-pressed", "true");
       state.transport = btn.dataset.transport ?? "all";
       applyView();
     });

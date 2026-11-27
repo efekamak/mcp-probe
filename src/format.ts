@@ -15,7 +15,7 @@ function statusTag(status: CheckStatus): string {
 }
 
 export function escapeHtml(text: string): string {
-  return text
+  return String(text ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

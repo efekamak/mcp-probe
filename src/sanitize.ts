@@ -40,7 +40,7 @@ function redactPrivateKeys(text: string): string {
       const line = text.slice(endIdx, nl === -1 ? text.length : nl).trim();
       if (
         line.length === 0 ||
-        /^[A-Za-z0-9+/=]{8,}$/.test(line) ||
+        /^[A-Za-z0-9+/=]{2,}$/.test(line) ||
         /^(?:Proc-Type|DEK-Info):/i.test(line)
       ) {
         endIdx = lineEnd;
@@ -60,13 +60,14 @@ const SECRET_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\b(gh[pousr]_[A-Za-z0-9]{20,})\b/g, replacement: "[REDACTED_GH_TOKEN]" },
   { pattern: /\b(github_pat_[A-Za-z0-9_]{20,})\b/g, replacement: "[REDACTED_GH_TOKEN]" },
   { pattern: /\b(npm_[A-Za-z0-9]{20,})\b/g, replacement: "[REDACTED_NPM_TOKEN]" },
-  { pattern: /\b(AKIA[0-9A-Z]{16})\b/g, replacement: "[REDACTED_AWS_KEY]" },
-  { pattern: /\b(xox[baprs]-[A-Za-z0-9-]{10,})\b/g, replacement: "[REDACTED_SLACK_TOKEN]" },
+  { pattern: /\b((?:AKIA|ASIA)[0-9A-Z]{16})\b/g, replacement: "[REDACTED_AWS_KEY]" },
+  { pattern: /\b(xox[baprsce]-[A-Za-z0-9-]{10,})\b/g, replacement: "[REDACTED_SLACK_TOKEN]" },
   {
     pattern: /\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g,
     replacement: "[REDACTED_JWT]",
   },
   { pattern: /(Bearer\s+)[A-Za-z0-9._~+/=-]{16,}/gi, replacement: "$1[REDACTED_TOKEN]" },
+  { pattern: /(\bBasic\s+)[A-Za-z0-9+/=]{8,}/gi, replacement: "$1[REDACTED_TOKEN]" },
   { pattern: /(https?:\/\/[^:\s/@]+:)[^@\s/]+@/gi, replacement: "$1[REDACTED]@" },
   { pattern: /([?&](?:api_?key|token|access_?token|secret|auth|key)=)[^&\s"'`]+/gi, replacement: "$1[REDACTED]" },
 ];
@@ -98,14 +99,15 @@ export function scrubText(text: string, maxLen: number = 1024): string {
 }
 
 export function detectSecretOrPathLeak(text: string): string[] {
+  const clean = stripAnsi(text);
   const leaks: string[] = [];
   BEGIN_PRIVATE_KEY_REGEX.lastIndex = 0;
-  if (BEGIN_PRIVATE_KEY_REGEX.test(text)) {
+  if (BEGIN_PRIVATE_KEY_REGEX.test(clean)) {
     leaks.push("secret-like token pattern");
   } else {
     for (const { pattern } of SECRET_PATTERNS) {
       pattern.lastIndex = 0;
-      if (pattern.test(text)) {
+      if (pattern.test(clean)) {
         leaks.push("secret-like token pattern");
         break;
       }
@@ -113,7 +115,7 @@ export function detectSecretOrPathLeak(text: string): string[] {
   }
   for (const { pattern } of LOCAL_PATH_PATTERNS) {
     pattern.lastIndex = 0;
-    if (pattern.test(text)) {
+    if (pattern.test(clean)) {
       leaks.push("host user filesystem path");
       break;
     }

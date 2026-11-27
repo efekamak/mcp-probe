@@ -36,15 +36,15 @@
           autocomplete="off"
         />
         <div class="filters" id="transport-filters" role="group" aria-label="Transport">
-          <button type="button" class="filter-btn is-active" data-transport="all">All</button>
-          <button type="button" class="filter-btn" data-transport="http">HTTP</button>
-          <button type="button" class="filter-btn" data-transport="stdio">stdio</button>
+          <button type="button" class="filter-btn is-active" data-transport="all" aria-pressed="true">All</button>
+          <button type="button" class="filter-btn" data-transport="http" aria-pressed="false">HTTP</button>
+          <button type="button" class="filter-btn" data-transport="stdio" aria-pressed="false">stdio</button>
         </div>
         <div class="filters" id="filters" role="group" aria-label="Status">
-          <button type="button" class="filter-btn is-active" data-filter="all">All</button>
-          <button type="button" class="filter-btn" data-filter="failed">Failed</button>
-          <button type="button" class="filter-btn" data-filter="warned">Warned</button>
-          <button type="button" class="filter-btn" data-filter="passed">Passed</button>
+          <button type="button" class="filter-btn is-active" data-filter="all" aria-pressed="true">All</button>
+          <button type="button" class="filter-btn" data-filter="failed" aria-pressed="false">Failed</button>
+          <button type="button" class="filter-btn" data-filter="warned" aria-pressed="false">Warned</button>
+          <button type="button" class="filter-btn" data-filter="passed" aria-pressed="false">Passed</button>
         </div>
         <label class="visually-hidden" for="sort">Sort servers</label>
         <select id="sort" class="sort-select" aria-label="Sort servers">
@@ -58,7 +58,7 @@
           Source &amp; GitHub Action ↗
         </a>
       </section>
-      <p id="result-count" class="result-count"></p>
+      <p id="result-count" class="result-count" aria-live="polite"></p>
 
       <section id="cards" class="cards"></section>
 

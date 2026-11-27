@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { isValidAuditReport } from "../src/diff.js";
 import type { ScorecardDocument } from "./run-scorecard.js";
 
 const scorecardSrc = path.resolve("generated/scorecard.json");
@@ -46,14 +47,43 @@ if (
   Array.isArray(parsed) ||
   (parsed as { schemaVersion?: unknown }).schemaVersion !== 1 ||
   (parsed as { tool?: unknown }).tool !== "mcp-probe" ||
+  typeof (parsed as { generatedAt?: unknown }).generatedAt !== "string" ||
+  !(parsed as { runner?: unknown }).runner ||
+  typeof (parsed as { runner: { nodeVersion?: unknown } }).runner.nodeVersion !== "string" ||
   !Array.isArray((parsed as { entries?: unknown }).entries) ||
   !(parsed as { summary?: unknown }).summary ||
-  typeof (parsed as { summary: { servers?: unknown; avgScore?: unknown } }).summary.servers !== "number" ||
-  typeof (parsed as { summary: { servers?: unknown; avgScore?: unknown } }).summary.avgScore !== "number"
+  typeof (parsed as { summary: Record<string, unknown> }).summary.servers !== "number" ||
+  typeof (parsed as { summary: Record<string, unknown> }).summary.avgScore !== "number" ||
+  typeof (parsed as { summary: Record<string, unknown> }).summary.passed !== "number" ||
+  typeof (parsed as { summary: Record<string, unknown> }).summary.warned !== "number" ||
+  typeof (parsed as { summary: Record<string, unknown> }).summary.failed !== "number" ||
+  typeof (parsed as { summary: Record<string, unknown> }).summary.errors !== "number" ||
+  typeof (parsed as { summary: Record<string, unknown> }).summary.totalTools !== "number"
 ) {
   throw new Error("Invalid scorecard.json structure.");
 }
 const doc = parsed as ScorecardDocument;
+
+const SAFE_SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const seenIds = new Set<string>();
+for (const entry of doc.entries) {
+  if (!entry || typeof entry.id !== "string" || !SAFE_SLUG_REGEX.test(entry.id) || seenIds.has(entry.id)) {
+    throw new Error(`Unsafe or duplicate scorecard entry id: "${String(entry?.id)}"`);
+  }
+  seenIds.add(entry.id);
+  if (
+    typeof entry.name !== "string" ||
+    typeof entry.package !== "string" ||
+    !isValidAuditReport(entry.report) ||
+    !entry.report.target ||
+    (entry.report.target.transport !== "http" && entry.report.target.transport !== "stdio") ||
+    !entry.report.server ||
+    typeof entry.report.server !== "object"
+  ) {
+    throw new Error(`Invalid report payload for scorecard entry "${entry.id}".`);
+  }
+}
+
 await fs.writeFile(
   path.join(distSiteDir, "scorecard.json"),
   `${JSON.stringify(doc, null, 2)}\n`,
@@ -72,20 +102,7 @@ await fs.writeFile(
   "utf8",
 );
 
-const SAFE_SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-
 for (const entry of doc.entries) {
-  if (!entry || typeof entry.id !== "string" || !SAFE_SLUG_REGEX.test(entry.id)) {
-    throw new Error(`Unsafe badge entry id: "${String(entry?.id)}"`);
-  }
-  if (
-    !entry.report ||
-    typeof entry.report.grade !== "string" ||
-    typeof entry.report.score !== "number" ||
-    !Number.isFinite(entry.report.score)
-  ) {
-    throw new Error(`Invalid report payload for scorecard entry "${entry.id}".`);
-  }
   const badge = {
     schemaVersion: 1,
     label: entry.id,

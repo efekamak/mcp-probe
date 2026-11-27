@@ -71,7 +71,12 @@ const catalogRaw = JSON.parse(
 const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-probe-scorecard-"));
 const resultsByIndex: Array<ScorecardEntry | undefined> = new Array(catalogRaw.servers.length);
 
+const SAFE_SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
 async function probeEntry(srv: CatalogServer): Promise<ScorecardEntry> {
+  if (!SAFE_SLUG_REGEX.test(srv.id)) {
+    throw new Error(`Unsafe catalog server id: "${srv.id}"`);
+  }
   if (dryRun) {
     const display = srv.transport === "http" ? srv.url : [srv.command, ...srv.args].join(" ");
     const dummyReport: AuditReport = {
@@ -132,7 +137,47 @@ async function probeEntry(srv: CatalogServer): Promise<ScorecardEntry> {
   }
 
   console.log(`Probing [${srv.transport}] ${srv.name} (${srv.package})...`);
-  const report = await probeMcpServer(target, { stepTimeoutMs: 30_000 });
+  let report: AuditReport;
+  try {
+    report = await probeMcpServer(target, { stepTimeoutMs: 30_000 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const display = srv.transport === "http" ? srv.url : [srv.command, ...srv.args].join(" ");
+    report = {
+      schemaVersion: 1,
+      tool: "mcp-probe",
+      toolVersion: TOOL_VERSION,
+      timestamp: new Date().toISOString(),
+      durationMs: 0,
+      target: { transport: srv.transport, display },
+      server: { name: null, version: null, protocolVersion: null, capabilities: [] },
+      score: 0,
+      grade: "F",
+      status: "error",
+      counts: { pass: 0, warn: 0, fail: 0, skip: 0 },
+      checks: [],
+      providers: {
+        openai: { provider: "openai", compatible: false, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+        anthropic: { provider: "anthropic", compatible: false, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+        gemini: { provider: "gemini", compatible: false, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+        cursor: { provider: "cursor", compatible: false, compatibleTools: 0, totalTools: 0, errors: 0, warnings: 0, issues: [] },
+      },
+      context: {
+        tokenizer: "o200k_base",
+        toolCount: 0,
+        promptCount: 0,
+        resourceCount: 0,
+        totalBytes: 0,
+        estimatedTokens: 0,
+        missingDescriptions: 0,
+        missingAnnotations: 0,
+        heaviestTools: [],
+        tools: [],
+      },
+      safety: { passed: true, errors: 0, warnings: 0, findings: [] },
+      fatalError: msg.slice(0, 300),
+    };
+  }
 
   console.log(
     `  -> ${srv.name}: ${report.status.toUpperCase()} Grade ${report.grade} (${report.score}/100) | ${report.context.toolCount} tools (~${report.context.estimatedTokens} tokens)`,
